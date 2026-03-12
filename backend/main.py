@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.documents import router as documents_router
 from backend.api.jobs import router as jobs_router
+from backend.api.ocr import router as ocr_router
 from backend.config import ensure_directories
 from backend.database.engine import init_db
 
@@ -38,6 +39,7 @@ app.add_middleware(
 
 app.include_router(documents_router)
 app.include_router(jobs_router)
+app.include_router(ocr_router)
 
 # StaticFiles mount must come last so API routes take priority
 _frontend_dir = Path(__file__).parent.parent / "frontend"

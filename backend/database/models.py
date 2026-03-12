@@ -27,6 +27,7 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="uploaded")
     text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_scanned: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    ocr_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     upload_date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

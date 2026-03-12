@@ -23,9 +23,23 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     session_factory = async_sessionmaker(
         bind=engine, class_=AsyncSession, expire_on_commit=False
     )
+
+    # Patch AsyncSessionLocal so background tasks use the test DB
+    import backend.api.documents as docs_module
+    import backend.api.ocr as ocr_module
+    import backend.database.engine as engine_module
+
+    orig_session_local = engine_module.AsyncSessionLocal
+    engine_module.AsyncSessionLocal = session_factory
+    docs_module.AsyncSessionLocal = session_factory
+    ocr_module.AsyncSessionLocal = session_factory
+
     async with session_factory() as session:
         yield session
 
+    engine_module.AsyncSessionLocal = orig_session_local
+    docs_module.AsyncSessionLocal = orig_session_local
+    ocr_module.AsyncSessionLocal = orig_session_local
     await engine.dispose()
 
 
@@ -81,6 +95,18 @@ def sample_pdf(tmp_path: Path) -> Path:
     doc.save(str(pdf_path))
     doc.close()
     return pdf_path
+
+
+@pytest.fixture
+def sample_image(tmp_path: Path) -> Path:
+    import cv2
+    import numpy as np
+
+    img = np.zeros((100, 200, 3), dtype=np.uint8)
+    cv2.putText(img, "Test", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+    img_path = tmp_path / "test_image.png"
+    cv2.imwrite(str(img_path), img)
+    return img_path
 
 
 @pytest.fixture

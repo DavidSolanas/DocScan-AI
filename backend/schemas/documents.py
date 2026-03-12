@@ -24,6 +24,7 @@ class DocumentDetail(BaseModel):
     status: str
     text_content: str | None
     is_scanned: bool | None
+    ocr_confidence: float | None = None
     upload_date: datetime
     updated_at: datetime
 
@@ -41,5 +42,6 @@ class DocumentTextResponse(BaseModel):
     text_content: str | None
     page_count: int | None
     is_scanned: bool | None
+    ocr_confidence: float | None = None
 
     model_config = {"from_attributes": True}

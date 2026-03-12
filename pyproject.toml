@@ -12,6 +12,9 @@ dependencies = [
     "pymupdf>=1.25",
     "python-multipart>=0.0.18",
     "pydantic-settings>=2.7",
+    "opencv-python-headless>=4.13.0.92",
+    "pytesseract>=0.3.13",
+    "pillow>=12.1.1",
 ]
 
 [dependency-groups]

@@ -48,6 +48,12 @@ class Settings(BaseSettings):
 
     MAX_UPLOAD_SIZE_MB: int = 100
 
+    TESSERACT_LANG: str = "spa+eng"
+    TESSERACT_PSM: int = 3
+    OCR_TARGET_DPI: int = 300
+    OCR_CONFIDENCE_THRESHOLD: float = 70.0
+    PREPROCESSING_ENABLED: bool = True
+
     model_config = {"env_prefix": "DOCSCAN_"}
 
 

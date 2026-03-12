@@ -418,6 +418,10 @@ html, body {
   letter-spacing: 0.07em;
 }
 
+#run-ocr-btn {
+  margin-top: 12px;
+}
+
 .text-panel-body {
   flex: 1;
   overflow: auto;
@@ -538,6 +542,124 @@ html, body {
 /* ─── Uploading Overlay on Doc Item ─────────────────────────────────────── */
 .doc-item.uploading .doc-name {
   opacity: 0.6;
+}
+
+/* ─── Tab Bar ────────────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 2px;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--trans), background var(--trans);
+}
+
+.tab-btn:hover {
+  color: var(--text-sub);
+  background: var(--surface2);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  background: rgba(137, 180, 250, 0.12);
+}
+
+/* ─── Confidence Badges ──────────────────────────────────────────────────── */
+.confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  letter-spacing: 0.03em;
+}
+
+.confidence-high {
+  color: var(--green);
+  background: rgba(166, 227, 161, 0.15);
+}
+
+.confidence-medium {
+  color: var(--yellow);
+  background: rgba(249, 226, 175, 0.15);
+}
+
+.confidence-low {
+  color: var(--red);
+  background: rgba(243, 139, 168, 0.15);
+}
+
+/* ─── OCR Results ────────────────────────────────────────────────────────── */
+.ocr-summary {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ocr-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-bottom: 6px;
+}
+
+.low-conf-warning {
+  color: var(--red);
+  font-size: 11px;
+}
+
+.ocr-page-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.ocr-page-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface3);
+  font-size: 12px;
+}
+
+.ocr-page-num {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ocr-word-count {
+  color: var(--text-muted);
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.ocr-page-text {
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 /* ─── Misc ───────────────────────────────────────────────────────────────── */

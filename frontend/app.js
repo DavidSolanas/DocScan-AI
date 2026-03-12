@@ -22,6 +22,7 @@ const state = {
   /** @type {Map<number,ReturnType<typeof setInterval>>} */
   pollingTimers: new Map(),
   rendering: false,
+  activeTab: "text",
 };
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
@@ -57,6 +58,20 @@ const progressBarWrap = $("progress-bar-wrapper");
 const progressBar     = $("progress-bar");
 const progressLabel   = $("progress-label");
 const textContent     = $("text-content");
+
+const tabText         = $("tab-text");
+const tabOcr          = $("tab-ocr");
+const textTabContent  = $("text-tab-content");
+const ocrTabContent   = $("ocr-tab-content");
+const ocrEmpty        = $("ocr-empty");
+const runOcrBtn       = $("run-ocr-btn");
+const ocrProcessing   = $("ocr-processing");
+const ocrProgressWrap = $("ocr-progress-wrapper");
+const ocrProgressBar  = $("ocr-progress-bar");
+const ocrProgressLabel = $("ocr-progress-label");
+const ocrResults      = $("ocr-results");
+const ocrSummary      = $("ocr-summary");
+const ocrPages        = $("ocr-pages");
 
 const toastContainer  = $("toast-container");
 
@@ -207,6 +222,7 @@ async function selectDocument(docId) {
 
     await renderDocumentPreview(doc);
     await refreshTextPanel(doc);
+    await refreshOCRPanel(doc);
   } catch (err) {
     showToast(`Failed to open document: ${err.message}`, "error");
   }
@@ -352,6 +368,25 @@ async function refreshTextPanel(doc) {
   }
 }
 
+// ─── OCR panel refresh ────────────────────────────────────────────────────────
+async function refreshOCRPanel(doc) {
+  ocrEmpty.hidden = false;
+  ocrProcessing.hidden = true;
+  ocrResults.hidden = true;
+  runOcrBtn.hidden = true;
+
+  // Show "Run OCR" button for scanned docs or images without OCR results
+  const isImage = !isDocPdf(doc);
+  if (doc.is_scanned || isImage) {
+    runOcrBtn.hidden = false;
+  }
+
+  // If we already have OCR confidence, load the results
+  if (doc.ocr_confidence != null) {
+    await loadOCRResults(doc.id);
+  }
+}
+
 // ─── Job polling ──────────────────────────────────────────────────────────────
 function startPolling(docId) {
   if (state.pollingTimers.has(docId)) return; // already polling
@@ -414,6 +449,144 @@ function stopPolling(docId) {
   }
 }
 
+// ─── Tab switching ────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  state.activeTab = tab;
+  tabText.classList.toggle("active", tab === "text");
+  tabOcr.classList.toggle("active", tab === "ocr");
+  textTabContent.hidden = tab !== "text";
+  ocrTabContent.hidden = tab !== "ocr";
+}
+
+tabText.addEventListener("click", () => switchTab("text"));
+tabOcr.addEventListener("click", () => switchTab("ocr"));
+
+// ─── OCR ──────────────────────────────────────────────────────────────────────
+async function runOCR(docId) {
+  try {
+    ocrEmpty.hidden = true;
+    ocrProcessing.hidden = false;
+    ocrResults.hidden = true;
+    ocrProgressWrap.hidden = true;
+    ocrProgressLabel.textContent = "Starting…";
+
+    await apiJson(`/ocr/${docId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lang: "spa+eng", preprocess: true }),
+    });
+
+    showToast("OCR started", "info");
+    startOCRPolling(docId);
+  } catch (err) {
+    ocrProcessing.hidden = true;
+    ocrEmpty.hidden = false;
+    showToast(`OCR failed: ${err.message}`, "error");
+  }
+}
+
+function startOCRPolling(docId) {
+  const key = `ocr_${docId}`;
+  if (state.pollingTimers.has(key)) return;
+
+  const timer = setInterval(async () => {
+    try {
+      const data = await apiJson(`/jobs/document/${docId}`);
+      const jobs = data.jobs ?? [];
+      const ocrJob = jobs.find(j => j.job_type === "ocr" && (j.status === "running" || j.status === "pending"));
+      const completedOcr = jobs.find(j => j.job_type === "ocr" && j.status === "completed");
+      const failedOcr = jobs.find(j => j.job_type === "ocr" && j.status === "failed");
+
+      if (ocrJob && docId === state.activeDocId) {
+        ocrProgressWrap.hidden = false;
+        const pct = Math.round((ocrJob.progress ?? 0) * 100);
+        ocrProgressBar.style.width = `${pct}%`;
+        ocrProgressLabel.textContent = `${pct}%`;
+      }
+
+      if (completedOcr || failedOcr) {
+        stopOCRPolling(docId);
+
+        if (docId === state.activeDocId) {
+          if (completedOcr) {
+            await loadOCRResults(docId);
+            showToast("OCR complete!", "success");
+          } else {
+            ocrProcessing.hidden = true;
+            ocrEmpty.hidden = false;
+            showToast(`OCR failed: ${failedOcr.error ?? "Unknown error"}`, "error");
+          }
+        }
+        await loadDocumentList();
+      }
+    } catch {
+      // keep polling
+    }
+  }, 2000);
+
+  state.pollingTimers.set(key, timer);
+}
+
+function stopOCRPolling(docId) {
+  const key = `ocr_${docId}`;
+  const timer = state.pollingTimers.get(key);
+  if (timer !== undefined) {
+    clearInterval(timer);
+    state.pollingTimers.delete(key);
+  }
+}
+
+async function loadOCRResults(docId) {
+  try {
+    const data = await apiJson(`/ocr/${docId}/result`);
+    ocrProcessing.hidden = true;
+    ocrEmpty.hidden = true;
+    ocrResults.hidden = false;
+
+    ocrSummary.innerHTML = `
+      <div class="ocr-summary-row">
+        <span>Overall confidence:</span>
+        ${confidenceBadge(data.average_confidence)}
+      </div>
+      <div class="ocr-summary-row">
+        <span>Pages: ${data.page_count}</span>
+        ${data.low_confidence_pages.length > 0
+          ? `<span class="low-conf-warning">Low confidence on page${data.low_confidence_pages.length > 1 ? "s" : ""} ${data.low_confidence_pages.join(", ")}</span>`
+          : ""}
+      </div>
+    `;
+
+    ocrPages.innerHTML = "";
+    for (const page of data.pages) {
+      const card = document.createElement("div");
+      card.className = "ocr-page-card";
+      card.innerHTML = `
+        <div class="ocr-page-header">
+          <span class="ocr-page-num">Page ${page.page_number}</span>
+          ${confidenceBadge(page.average_confidence)}
+          <span class="ocr-word-count">${page.word_count} words</span>
+        </div>
+        <pre class="ocr-page-text">${escHtml(page.text)}</pre>
+      `;
+      ocrPages.appendChild(card);
+    }
+  } catch (err) {
+    ocrProcessing.hidden = true;
+    ocrEmpty.hidden = false;
+  }
+}
+
+function confidenceBadge(score) {
+  let cls = "confidence-low";
+  if (score >= 80) cls = "confidence-high";
+  else if (score >= 70) cls = "confidence-medium";
+  return `<span class="confidence-badge ${cls}">${Math.round(score)}%</span>`;
+}
+
+runOcrBtn.addEventListener("click", () => {
+  if (state.activeDocId) runOCR(state.activeDocId);
+});
+
 // ─── Copy text ────────────────────────────────────────────────────────────────
 copyTextBtn.addEventListener("click", async () => {
   const text = textContent.textContent;
@@ -449,6 +622,12 @@ async function deleteDocument(docId, listItem) {
       textProcessing.hidden = true;
       textPanelActions.hidden = true;
       textEmpty.querySelector("p").textContent = "No text extracted yet";
+      // Reset OCR panel
+      ocrEmpty.hidden = false;
+      ocrProcessing.hidden = true;
+      ocrResults.hidden = true;
+      runOcrBtn.hidden = true;
+      switchTab("text");
     }
 
     // Update count
