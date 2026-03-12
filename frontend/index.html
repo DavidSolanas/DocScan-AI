@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DocScan AI</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="app-layout">
+
+    <!-- Left Sidebar: Document List -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="app-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14,2 14,8 20,8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10,9 9,9 8,9"/>
+          </svg>
+        </span>
+        <h1 class="app-title">DocScan AI</h1>
+      </div>
+
+      <!-- Upload Area -->
+      <div class="upload-area" id="upload-area">
+        <div class="upload-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <polyline points="16,16 12,12 8,16"/>
+            <line x1="12" y1="12" x2="12" y2="21"/>
+            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+          </svg>
+        </div>
+        <p class="upload-label">Drop files here</p>
+        <p class="upload-sublabel">or</p>
+        <button class="btn btn-primary" id="upload-btn">Browse Files</button>
+        <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" multiple hidden />
+        <p class="upload-formats">PDF, PNG, JPG, TIFF</p>
+      </div>
+
+      <!-- Document List -->
+      <div class="doc-list-header">
+        <span class="doc-count" id="doc-count">0 documents</span>
+        <button class="btn btn-ghost btn-sm" id="refresh-btn" title="Refresh list">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23,4 23,10 17,10"/>
+            <polyline points="1,20 1,14 7,14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
+      </div>
+
+      <ul class="doc-list" id="doc-list">
+        <li class="doc-list-empty" id="doc-list-empty">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4">
+            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+            <polyline points="13,2 13,9 20,9"/>
+          </svg>
+          <p>No documents yet</p>
+          <p class="empty-sub">Upload a file to get started</p>
+        </li>
+      </ul>
+    </aside>
+
+    <!-- Center Panel: PDF Viewer -->
+    <main class="viewer-panel">
+      <div class="viewer-toolbar" id="viewer-toolbar" hidden>
+        <div class="viewer-filename" id="viewer-filename"></div>
+        <div class="viewer-controls">
+          <button class="btn btn-ghost btn-sm" id="prev-page" title="Previous page">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15,18 9,12 15,6"/>
+            </svg>
+          </button>
+          <span class="page-info" id="page-info">Page 1 / 1</span>
+          <button class="btn btn-ghost btn-sm" id="next-page" title="Next page">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,18 15,12 9,6"/>
+            </svg>
+          </button>
+          <button class="btn btn-ghost btn-sm" id="zoom-out" title="Zoom out">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              <line x1="8" y1="11" x2="14" y2="11"/>
+            </svg>
+          </button>
+          <span class="zoom-level" id="zoom-level">100%</span>
+          <button class="btn btn-ghost btn-sm" id="zoom-in" title="Zoom in">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="viewer-content" id="viewer-content">
+        <div class="viewer-empty" id="viewer-empty">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.25">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14,2 14,8 20,8"/>
+          </svg>
+          <p>Select a document to view</p>
+        </div>
+        <div class="canvas-wrapper" id="canvas-wrapper" hidden>
+          <canvas id="pdf-canvas"></canvas>
+        </div>
+        <div class="image-wrapper" id="image-wrapper" hidden>
+          <img id="doc-image" alt="Document preview" />
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Panel: Extracted Text -->
+    <aside class="text-panel">
+      <div class="text-panel-header">
+        <h2 class="panel-title">Extracted Text</h2>
+        <div class="text-panel-actions" id="text-panel-actions" hidden>
+          <button class="btn btn-ghost btn-sm" id="copy-text-btn" title="Copy text">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="text-panel-body">
+        <div class="text-empty" id="text-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+            <line x1="17" y1="10" x2="3" y2="10"/>
+            <line x1="21" y1="6" x2="3" y2="6"/>
+            <line x1="21" y1="14" x2="3" y2="14"/>
+            <line x1="17" y1="18" x2="3" y2="18"/>
+          </svg>
+          <p>No text extracted yet</p>
+          <p class="empty-sub">Select a processed document</p>
+        </div>
+
+        <div class="text-processing" id="text-processing" hidden>
+          <div class="spinner"></div>
+          <p>Processing document…</p>
+          <div class="progress-bar-wrapper" id="progress-bar-wrapper" hidden>
+            <div class="progress-bar" id="progress-bar"></div>
+          </div>
+          <p class="progress-label" id="progress-label"></p>
+        </div>
+
+        <pre class="text-content" id="text-content" hidden></pre>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Upload progress toast -->
+  <div class="toast-container" id="toast-container"></div>
+</body>
+</html>
