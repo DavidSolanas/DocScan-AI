@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
@@ -65,7 +65,7 @@ async def extract_text_task(document_id: str, file_path: str) -> None:
             document_id=document_id,
             job_type="text_extraction",
             status="running",
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
         )
         job_id = job.id
         try:
@@ -83,7 +83,7 @@ async def extract_text_task(document_id: str, file_path: str) -> None:
                 job_id,
                 status="completed",
                 progress=1.0,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
         except Exception as exc:
             logger.exception("Text extraction failed for document %s", document_id)
@@ -93,7 +93,7 @@ async def extract_text_task(document_id: str, file_path: str) -> None:
                 job_id,
                 status="failed",
                 error=str(exc),
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
 
 

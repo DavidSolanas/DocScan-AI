@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tempfile
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -42,15 +41,9 @@ async def client(db_session: AsyncSession, tmp_path: Path) -> AsyncGenerator[Asy
     app.dependency_overrides[get_db] = override_get_db
     get_settings.cache_clear()
 
-    # Patch get_settings to return temp settings
-    original_get_settings = app.dependency_overrides.copy()
-
-    # We need to patch the settings used inside the upload endpoint
-    # Override get_settings in the module-level cache
+    # Patch get_settings used inside the upload endpoint
     from backend import config as config_module
-    original_cache = config_module.get_settings.cache_info()
 
-    # Clear cache and set up override
     config_module.get_settings.cache_clear()
 
     # Temporarily override the function
