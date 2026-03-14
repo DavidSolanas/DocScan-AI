@@ -18,6 +18,13 @@ dependencies = [
     "pdfplumber>=0.11",
 ]
 
+[project.optional-dependencies]
+advanced-ocr = [
+    "camelot-py>=1.0.9",
+    "layoutparser>=0.3.4",
+    "paddleocr>=3.4.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
