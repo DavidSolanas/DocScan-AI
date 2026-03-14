@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     OCR_TARGET_DPI: int = 300
     OCR_CONFIDENCE_THRESHOLD: float = 70.0
     PREPROCESSING_ENABLED: bool = True
+    PADDLEOCR_ENABLED: bool = True
+    LAYOUT_DETECTION_ENABLED: bool = True
 
     model_config = {"env_prefix": "DOCSCAN_"}
 

@@ -17,7 +17,7 @@ from backend.database.engine import AsyncSessionLocal, get_db
 from backend.database.models import Job
 from backend.schemas.jobs import JobResponse
 from backend.schemas.ocr import OCRPageSchema, OCRResultResponse, OCRTriggerRequest
-from backend.services.ocr_engine import build_ocr_result, ocr_page
+from backend.services.ocr_engine import build_ocr_result, ocr_page_dual_engine
 from backend.services.preprocessing import preprocess_image
 from backend.utils.image_utils import load_image, pdf_page_count, pdf_page_to_image
 
@@ -35,11 +35,12 @@ async def ocr_document_task(
     lang: str,
     do_preprocess: bool,
 ) -> None:
-    """Background task: run OCR on a document page-by-page."""
+    """Background task: run OCR on a document page-by-page with dual-engine routing."""
     settings = get_settings()
     dpi = settings.OCR_TARGET_DPI
     psm = settings.TESSERACT_PSM
     confidence_threshold = settings.OCR_CONFIDENCE_THRESHOLD
+    paddleocr_enabled = settings.PADDLEOCR_ENABLED
 
     async with AsyncSessionLocal() as db:
         await update_job(
@@ -50,6 +51,7 @@ async def ocr_document_task(
             path = Path(file_path)
             ext = path.suffix.lower()
             page_results = []
+            engine_per_page: list[str] = []
 
             if ext == ".pdf":
                 import asyncio
@@ -60,10 +62,11 @@ async def ocr_document_task(
                     if do_preprocess:
                         preprocessed = await preprocess_image(image)
                         image = preprocessed.image
-                    page_result = await ocr_page(
-                        image, i + 1, lang, psm, confidence_threshold
+                    page_result, engine_used = await ocr_page_dual_engine(
+                        image, i + 1, lang, psm, confidence_threshold, paddleocr_enabled
                     )
                     page_results.append(page_result)
+                    engine_per_page.append(engine_used.value)
                     del image
                     await update_job(
                         db, job_id, progress=(i + 1) / total_pages
@@ -75,10 +78,11 @@ async def ocr_document_task(
                 if do_preprocess:
                     preprocessed = await preprocess_image(image)
                     image = preprocessed.image
-                page_result = await ocr_page(
-                    image, 1, lang, psm, confidence_threshold
+                page_result, engine_used = await ocr_page_dual_engine(
+                    image, 1, lang, psm, confidence_threshold, paddleocr_enabled
                 )
                 page_results.append(page_result)
+                engine_per_page.append(engine_used.value)
                 del image
                 await update_job(db, job_id, progress=1.0)
             else:
@@ -99,8 +103,9 @@ async def ocr_document_task(
                         "average_confidence": p.average_confidence,
                         "low_confidence": p.low_confidence,
                         "word_count": len(p.words),
+                        "engine_used": engine_per_page[idx],
                     }
-                    for p in result.pages
+                    for idx, p in enumerate(result.pages)
                 ],
             })
 

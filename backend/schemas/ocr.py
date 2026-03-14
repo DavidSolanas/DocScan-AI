@@ -14,6 +14,7 @@ class OCRPageSchema(BaseModel):
     average_confidence: float
     low_confidence: bool
     word_count: int
+    engine_used: str = "tesseract"
 
 
 class OCRResultResponse(BaseModel):
