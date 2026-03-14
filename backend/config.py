@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     PREPROCESSING_ENABLED: bool = True
     PADDLEOCR_ENABLED: bool = True
     LAYOUT_DETECTION_ENABLED: bool = True
+    OLLAMA_HOST: str = "http://localhost:11434"
 
     model_config = {"env_prefix": "DOCSCAN_"}
 

@@ -1,0 +1,30 @@
+services:
+  docscanai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - docscanai-data:/app/data
+      - docscanai-models:/home/docscanai/.cache
+    environment:
+      - DOCSCAN_DATA_DIR=/app/data
+      - DOCSCAN_OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+volumes:
+  docscanai-data:
+  docscanai-models:
+  ollama-models:

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.documents import router as documents_router
+from backend.api.health import router as health_router
 from backend.api.jobs import router as jobs_router
 from backend.api.ocr import router as ocr_router
 from backend.config import ensure_directories
@@ -37,6 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(health_router)
 app.include_router(documents_router)
 app.include_router(jobs_router)
 app.include_router(ocr_router)
