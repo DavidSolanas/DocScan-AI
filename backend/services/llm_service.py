@@ -66,6 +66,8 @@ class OllamaProvider:
                 raise LLMConnectionError(str(exc)) from exc
             except httpx.TimeoutException as exc:
                 raise LLMTimeoutError(str(exc)) from exc
+            except httpx.HTTPStatusError as exc:
+                raise LLMResponseError(f"HTTP {exc.response.status_code}: {exc}") from exc
             except (KeyError, ValueError) as exc:
                 raise LLMResponseError(str(exc)) from exc
 
