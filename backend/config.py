@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     PADDLEOCR_ENABLED: bool = True
     LAYOUT_DETECTION_ENABLED: bool = True
     OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b"
+    OLLAMA_TIMEOUT: int = 120        # seconds per Ollama call
+    LLM_MAX_RETRIES: int = 2
 
     model_config = {"env_prefix": "DOCSCAN_"}
 
