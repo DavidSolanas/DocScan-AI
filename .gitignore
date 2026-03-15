@@ -18,3 +18,4 @@ data/
 
 # Local model cache
 models/
+.worktrees/
