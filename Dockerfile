@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-spa \
     tesseract-ocr-eng \
     libglib2.0-0 \
+    libgl1 \
     libsm6 \
     libxext6 \
     ghostscript \
