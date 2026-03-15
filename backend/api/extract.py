@@ -15,7 +15,7 @@ from backend.database import crud
 from backend.database.engine import AsyncSessionLocal, get_db
 from backend.database.models import Job
 from backend.schemas.jobs import JobResponse
-from backend.services.llm_service import LLMConnectionError, get_llm_service
+from backend.services.llm_service import LLMConnectionError, LLMResponseError, LLMTimeoutError, get_llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,12 @@ async def _run_extraction(document_id: str, job_id: str) -> None:
         except LLMConnectionError as exc:
             await crud.update_job(db, job_id, status="failed", error="Ollama unreachable")
             logger.error("LLM connection error for document %s: %s", document_id, exc)
+        except LLMTimeoutError as exc:
+            await crud.update_job(db, job_id, status="failed", error="Ollama timed out")
+            logger.error("LLM timeout for document %s: %s", document_id, exc)
+        except LLMResponseError as exc:
+            await crud.update_job(db, job_id, status="failed", error=f"LLM response error: {exc}")
+            logger.error("LLM response error for document %s: %s", document_id, exc)
         except Exception as exc:
             await crud.update_job(db, job_id, status="failed", error=str(exc))
             logger.exception("Extraction failed for document %s", document_id)

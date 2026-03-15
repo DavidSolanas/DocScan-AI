@@ -130,8 +130,19 @@ async def ocr_document_task(
             from backend.services.invoice_extractor import is_likely_invoice
             if is_likely_invoice(result.full_text):
                 from backend.api.extract import _run_extraction
-                extraction_job = await create_job(db, document_id=document_id, job_type="extraction")
-                asyncio.create_task(_run_extraction(document_id, extraction_job.id))
+                from sqlalchemy import select as _select
+                from backend.database.models import Job as _Job
+                # Only trigger if no pending/running extraction job exists
+                existing_jobs = await db.execute(
+                    _select(_Job).where(
+                        _Job.document_id == document_id,
+                        _Job.job_type == "extraction",
+                        _Job.status.in_(["pending", "running"]),
+                    )
+                )
+                if existing_jobs.scalar_one_or_none() is None:
+                    extraction_job = await create_job(db, document_id=document_id, job_type="extraction")
+                    await _run_extraction(document_id, extraction_job.id)
 
         except Exception as exc:
             logger.exception("OCR failed for document %s", document_id)
