@@ -11,6 +11,9 @@ from pydantic import BaseModel, PlainSerializer
 # Annotated type that serializes Decimal as string in JSON output.
 # Pydantic v2's json_encoders config does not apply to model_dump_json(),
 # so PlainSerializer via Annotated is the reliable approach.
+# IMPORTANT: PlainSerializer applies to ALL serialization modes, not just JSON.
+# model_dump() also returns str for these fields (not Decimal).
+# Always use attribute access (invoice.field) for arithmetic — never model_dump().
 DecimalStr = Annotated[Decimal, PlainSerializer(lambda x: str(x), return_type=str)]
 
 
