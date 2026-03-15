@@ -4,20 +4,14 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-import pytest
-
 from backend.schemas.invoice import Invoice, InvoiceLine, InvoiceType
 from backend.services.invoice_validator import (
     ValidationIssue,
     ValidationResult,
     validate_cif,
-    validate_invoice,
-    validate_line_arithmetic,
-    validate_mandatory_fields,
     validate_nie,
     validate_nif,
     validate_spanish_tax_id,
-    validate_totals,
 )
 
 

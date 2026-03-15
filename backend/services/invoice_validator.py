@@ -1,7 +1,7 @@
 # backend/services/invoice_validator.py
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
@@ -93,7 +93,7 @@ def validate_spanish_tax_id(value: str, field: str = "tax_id") -> ValidationIssu
     v = value.upper().strip()
 
     # Skip EU VAT codes like FR12345678901, DE123456789
-    if len(v) > 9 and v[:2].isalpha() and v[:2] != "ES":
+    if v[:2].isalpha() and v[:2] != "ES":
         return None
 
     # Strip optional ES prefix
