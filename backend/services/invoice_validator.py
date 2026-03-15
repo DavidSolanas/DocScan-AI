@@ -133,16 +133,158 @@ def _round2(d: Decimal) -> Decimal:
 
 
 def validate_line_arithmetic(line: InvoiceLine) -> list[ValidationIssue]:
-    raise NotImplementedError
+    """Check arithmetic on a single invoice line."""
+    issues: list[ValidationIssue] = []
+
+    if line.quantity is not None and line.unit_price is not None:
+        discount = line.discount_pct if line.discount_pct is not None else Decimal("0")
+        expected_base = _round2(line.quantity * line.unit_price * (1 - discount / 100))
+        delta = abs(line.base_amount - expected_base)
+        if delta >= _EPSILON:
+            issues.append(ValidationIssue(
+                field=f"lines[{line.line_number}].base_amount",
+                message=f"base_amount mismatch: expected {expected_base}, got {line.base_amount}, delta={delta}",
+                severity="error",
+            ))
+
+    expected_iva = _round2(line.base_amount * line.iva_rate / 100)
+    delta = abs(line.iva_amount - expected_iva)
+    if delta >= _EPSILON:
+        issues.append(ValidationIssue(
+            field=f"lines[{line.line_number}].iva_amount",
+            message=f"iva_amount mismatch: expected {expected_iva}, got {line.iva_amount}, delta={delta}",
+            severity="error",
+        ))
+
+    if line.recargo_equivalencia_rate is not None:
+        expected_recargo = _round2(line.base_amount * line.recargo_equivalencia_rate / 100)
+        actual_recargo = line.recargo_equivalencia_amount or Decimal("0")
+        delta = abs(actual_recargo - expected_recargo)
+        if delta >= _EPSILON:
+            issues.append(ValidationIssue(
+                field=f"lines[{line.line_number}].recargo_equivalencia_amount",
+                message=f"recargo mismatch: expected {expected_recargo}, got {actual_recargo}, delta={delta}",
+                severity="error",
+            ))
+
+    recargo = line.recargo_equivalencia_amount or Decimal("0")
+    expected_total = _round2(line.base_amount + line.iva_amount + recargo)
+    delta = abs(line.total_line - expected_total)
+    if delta >= _EPSILON:
+        issues.append(ValidationIssue(
+            field=f"lines[{line.line_number}].total_line",
+            message=f"total_line mismatch: expected {expected_total}, got {line.total_line}, delta={delta}",
+            severity="error",
+        ))
+
+    return issues
 
 
 def validate_totals(invoice: Invoice) -> list[ValidationIssue]:
-    raise NotImplementedError
+    """Check invoice-level totals against line sums."""
+    issues: list[ValidationIssue] = []
+
+    expected_subtotal = _round2(sum(line.base_amount for line in invoice.lines))
+    delta = abs(invoice.subtotal - expected_subtotal)
+    if delta >= _EPSILON:
+        issues.append(ValidationIssue(
+            field="subtotal",
+            message=f"subtotal mismatch: expected {expected_subtotal}, got {invoice.subtotal}, delta={delta}",
+            severity="error",
+        ))
+
+    expected_iva = _round2(sum(line.iva_amount for line in invoice.lines))
+    delta = abs(invoice.total_iva - expected_iva)
+    if delta >= _EPSILON:
+        issues.append(ValidationIssue(
+            field="total_iva",
+            message=f"total_iva mismatch: expected {expected_iva}, got {invoice.total_iva}, delta={delta}",
+            severity="error",
+        ))
+
+    recargo = invoice.total_recargo or Decimal("0")
+    irpf = invoice.irpf_amount or Decimal("0")
+    expected_total = _round2(invoice.subtotal + invoice.total_iva + recargo - irpf)
+    delta = abs(invoice.total_amount - expected_total)
+    if delta >= _EPSILON:
+        issues.append(ValidationIssue(
+            field="total_amount",
+            message=f"total_amount mismatch: expected {expected_total}, got {invoice.total_amount}, delta={delta}",
+            severity="error",
+        ))
+
+    return issues
 
 
 def validate_mandatory_fields(invoice: Invoice) -> list[ValidationIssue]:
-    raise NotImplementedError
+    """Check RD 1619/2012 mandatory fields by invoice type."""
+    issues: list[ValidationIssue] = []
+
+    _sentinel = "[extraction_failed]"
+
+    def _missing(val: object) -> bool:
+        return val is None or val == "" or val == _sentinel
+
+    if invoice.invoice_type == InvoiceType.SIMPLIFIED:
+        for fname, val in [
+            ("invoice_number", invoice.invoice_number),
+            ("issue_date", invoice.issue_date),
+            ("issuer_cif", invoice.issuer_cif),
+            ("total_amount", invoice.total_amount),
+        ]:
+            if _missing(val):
+                issues.append(ValidationIssue(field=fname, message=f"Mandatory field missing: {fname}", severity="error"))
+
+        if invoice.total_amount > Decimal("400") and not invoice.recipient_cif:
+            issues.append(ValidationIssue(
+                field="recipient_cif",
+                message="SIMPLIFIED invoice > €400 requires recipient_cif",
+                severity="warning",
+            ))
+    else:
+        for fname, val in [
+            ("invoice_number", invoice.invoice_number),
+            ("issue_date", invoice.issue_date),
+            ("issuer_name", invoice.issuer_name),
+            ("issuer_cif", invoice.issuer_cif),
+            ("issuer_address", invoice.issuer_address),
+            ("recipient_name", invoice.recipient_name),
+            ("recipient_cif", invoice.recipient_cif),
+            ("total_amount", invoice.total_amount),
+        ]:
+            if _missing(val):
+                issues.append(ValidationIssue(field=fname, message=f"Mandatory field missing: {fname}", severity="error"))
+
+    if invoice.invoice_type == InvoiceType.RECTIFICATIVE:
+        if not invoice.original_invoice_ref:
+            issues.append(ValidationIssue(field="original_invoice_ref", message="RECTIFICATIVE requires original_invoice_ref", severity="error"))
+        if not invoice.rectification_reason:
+            issues.append(ValidationIssue(field="rectification_reason", message="RECTIFICATIVE requires rectification_reason", severity="error"))
+
+    return issues
 
 
 def validate_invoice(invoice: Invoice) -> ValidationResult:
-    raise NotImplementedError
+    """Run all validation checks and return aggregate result."""
+    issues: list[ValidationIssue] = []
+
+    if issue := validate_spanish_tax_id(invoice.issuer_cif, "issuer_cif"):
+        issues.append(issue)
+    if invoice.recipient_cif and (issue := validate_spanish_tax_id(invoice.recipient_cif, "recipient_cif")):
+        issues.append(issue)
+
+    for line in invoice.lines:
+        issues.extend(validate_line_arithmetic(line))
+
+    issues.extend(validate_totals(invoice))
+    issues.extend(validate_mandatory_fields(invoice))
+
+    errors = [i for i in issues if i.severity == "error"]
+    critical_fields = {"invoice_number", "issuer_cif", "recipient_cif", "total_amount", "issue_date"}
+    review_needed = any(i.field in critical_fields for i in issues)
+
+    return ValidationResult(
+        valid=len(errors) == 0,
+        issues=issues,
+        requires_manual_review=review_needed,
+    )

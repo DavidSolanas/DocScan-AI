@@ -9,9 +9,13 @@ from backend.services.invoice_validator import (
     ValidationIssue,
     ValidationResult,
     validate_cif,
+    validate_invoice,
+    validate_line_arithmetic,
+    validate_mandatory_fields,
     validate_nie,
     validate_nif,
     validate_spanish_tax_id,
+    validate_totals,
 )
 
 
@@ -151,3 +155,128 @@ def test_validate_spanish_tax_id_eu_vat_skipped():
 
 def test_validate_spanish_tax_id_es_prefix_stripped():
     assert validate_spanish_tax_id("ES12345678Z", "issuer_cif") is None
+
+
+# ---- validate_line_arithmetic ----
+
+def test_validate_line_arithmetic_exact_match():
+    line = _make_line()
+    assert validate_line_arithmetic(line) == []
+
+
+def test_validate_line_arithmetic_iva_off_by_one_cent():
+    line = _make_line(iva_amount=Decimal("20.99"))  # should be 21.00
+    issues = validate_line_arithmetic(line)
+    fields = {i.field for i in issues}
+    assert "lines[1].iva_amount" in fields
+    assert any("delta=0.01" in i.message for i in issues)
+
+
+def test_validate_line_arithmetic_skips_base_when_quantity_none():
+    line = _make_line(quantity=None, unit_price=Decimal("50.00"))
+    issues = validate_line_arithmetic(line)
+    assert not any("base_amount" in i.field for i in issues)
+
+
+def test_validate_line_arithmetic_with_quantity_and_discount():
+    # 2 × 60 × (1 - 10/100) = 108.00
+    line = _make_line(
+        quantity=Decimal("2"),
+        unit_price=Decimal("60.00"),
+        discount_pct=Decimal("10"),
+        base_amount=Decimal("108.00"),
+        iva_rate=Decimal("21"),
+        iva_amount=Decimal("22.68"),
+        total_line=Decimal("130.68"),
+    )
+    assert validate_line_arithmetic(line) == []
+
+
+# ---- validate_totals ----
+
+def test_validate_totals_correct():
+    assert validate_totals(_make_valid_invoice()) == []
+
+
+def test_validate_totals_subtotal_off():
+    invoice = _make_valid_invoice(subtotal=Decimal("99.00"))
+    issues = validate_totals(invoice)
+    assert any(i.field == "subtotal" for i in issues)
+
+
+def test_validate_totals_total_amount_off():
+    invoice = _make_valid_invoice(total_amount=Decimal("120.00"))
+    issues = validate_totals(invoice)
+    assert any(i.field == "total_amount" for i in issues)
+
+
+def test_validate_totals_with_irpf():
+    # total = 100 + 21 - 15 = 106
+    invoice = _make_valid_invoice(
+        irpf_rate=Decimal("15"),
+        irpf_amount=Decimal("15.00"),
+        total_amount=Decimal("106.00"),
+    )
+    assert validate_totals(invoice) == []
+
+
+# ---- validate_mandatory_fields ----
+
+def test_validate_mandatory_standard_complete():
+    assert validate_mandatory_fields(_make_valid_invoice()) == []
+
+
+def test_validate_mandatory_standard_missing_issuer_address():
+    invoice = _make_valid_invoice(issuer_address=None)
+    issues = validate_mandatory_fields(invoice)
+    assert any(i.field == "issuer_address" and i.severity == "error" for i in issues)
+
+
+def test_validate_mandatory_simplified_no_recipient_ok():
+    # SIMPLIFIED doesn't require recipient fields
+    invoice = _make_valid_invoice(
+        invoice_type=InvoiceType.SIMPLIFIED,
+        issuer_address=None,
+        recipient_name="[extraction_failed]",
+    )
+    issues = validate_mandatory_fields(invoice)
+    assert not any(i.field == "recipient_name" for i in issues)
+    assert not any(i.field == "issuer_address" for i in issues)
+
+
+def test_validate_mandatory_simplified_warn_over_400():
+    invoice = _make_valid_invoice(
+        invoice_type=InvoiceType.SIMPLIFIED,
+        recipient_cif="",
+        total_amount=Decimal("500.00"),
+        # need total_iva consistent; update subtotal/total_iva to match
+        subtotal=Decimal("413.22"),
+        total_iva=Decimal("86.78"),
+    )
+    issues = validate_mandatory_fields(invoice)
+    assert any(i.field == "recipient_cif" and i.severity == "warning" for i in issues)
+
+
+def test_validate_mandatory_rectificative_requires_extra_fields():
+    invoice = _make_valid_invoice(invoice_type=InvoiceType.RECTIFICATIVE)
+    issues = validate_mandatory_fields(invoice)
+    fields = {i.field for i in issues}
+    assert "original_invoice_ref" in fields
+    assert "rectification_reason" in fields
+
+
+# ---- validate_invoice (aggregate) ----
+
+def test_validate_invoice_all_valid():
+    result = validate_invoice(_make_valid_invoice())
+    assert result.valid is True
+    assert result.issues == []
+    assert result.requires_manual_review is False
+
+
+def test_validate_invoice_bad_cif_requires_review():
+    invoice = _make_valid_invoice(issuer_cif="A12345670")  # bad checksum
+    result = validate_invoice(invoice)
+    assert result.valid is False
+    assert result.requires_manual_review is True
+    assert any(i.field == "issuer_cif" for i in result.issues)
