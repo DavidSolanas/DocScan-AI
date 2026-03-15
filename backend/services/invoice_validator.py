@@ -122,7 +122,7 @@ def validate_spanish_tax_id(value: str, field: str = "tax_id") -> ValidationIssu
     return None
 
 
-# --- Arithmetic validation (stubs — filled in Task 4) ---
+# --- Arithmetic validation ---
 
 _EPSILON = Decimal("0.01")
 _ROUNDING = ROUND_HALF_UP
@@ -184,7 +184,7 @@ def validate_totals(invoice: Invoice) -> list[ValidationIssue]:
     """Check invoice-level totals against line sums."""
     issues: list[ValidationIssue] = []
 
-    expected_subtotal = _round2(sum(line.base_amount for line in invoice.lines))
+    expected_subtotal = _round2(sum((line.base_amount for line in invoice.lines), Decimal("0")))
     delta = abs(invoice.subtotal - expected_subtotal)
     if delta >= _EPSILON:
         issues.append(ValidationIssue(
@@ -193,7 +193,7 @@ def validate_totals(invoice: Invoice) -> list[ValidationIssue]:
             severity="error",
         ))
 
-    expected_iva = _round2(sum(line.iva_amount for line in invoice.lines))
+    expected_iva = _round2(sum((line.iva_amount for line in invoice.lines), Decimal("0")))
     delta = abs(invoice.total_iva - expected_iva)
     if delta >= _EPSILON:
         issues.append(ValidationIssue(
@@ -268,10 +268,13 @@ def validate_invoice(invoice: Invoice) -> ValidationResult:
     """Run all validation checks and return aggregate result."""
     issues: list[ValidationIssue] = []
 
-    if issue := validate_spanish_tax_id(invoice.issuer_cif, "issuer_cif"):
-        issues.append(issue)
-    if invoice.recipient_cif and (issue := validate_spanish_tax_id(invoice.recipient_cif, "recipient_cif")):
-        issues.append(issue)
+    _sentinel = "[extraction_failed]"
+    if invoice.issuer_cif and invoice.issuer_cif not in ("", _sentinel):
+        if issue := validate_spanish_tax_id(invoice.issuer_cif, "issuer_cif"):
+            issues.append(issue)
+    if invoice.recipient_cif and invoice.recipient_cif not in ("", _sentinel):
+        if issue := validate_spanish_tax_id(invoice.recipient_cif, "recipient_cif"):
+            issues.append(issue)
 
     for line in invoice.lines:
         issues.extend(validate_line_arithmetic(line))
