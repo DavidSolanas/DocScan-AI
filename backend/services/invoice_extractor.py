@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import typing
 from datetime import date
 from decimal import Decimal
+from enum import Enum
 from typing import Any, get_args, get_origin
 
 from backend.schemas.invoice import Invoice, InvoiceType
@@ -68,7 +70,14 @@ async def extract_line_items(text: str, doc_type: InvoiceType, llm: LLMService) 
     raw = await llm.complete_json(prompt, system=_EXTRACTOR_SYSTEM)
     if isinstance(raw, list):
         return raw
-    return raw.get("lines", [])
+    lines = raw.get("lines")
+    if lines is None and raw:
+        logging.getLogger(__name__).warning(
+            "extract_line_items: expected 'lines' key but got keys %s; returning empty list",
+            list(raw.keys()),
+        )
+        return []
+    return lines or []
 
 
 async def extract_totals(text: str, doc_type: InvoiceType, llm: LLMService) -> dict:
@@ -94,6 +103,8 @@ def _default_for_annotation(ann: Any) -> Any:
     if get_origin(ann) is typing.Annotated:
         ann = get_args(ann)[0]
 
+    if isinstance(ann, type) and issubclass(ann, Enum):
+        return list(ann)[0]  # first enum value as default
     if ann is str or ann == str:
         return "[extraction_failed]"
     if ann is date or ann == date:
@@ -114,6 +125,10 @@ def _default_for_annotation(ann: Any) -> Any:
     return "[extraction_failed]"
 
 
+# Keys that must not be overwritten by LLM output
+_PROTECTED_KEYS = {"invoice_type", "source_file", "extraction_confidence", "tax_breakdown"}
+
+
 def _safe_merge(
     invoice_type: InvoiceType,
     headers: dict,
@@ -131,8 +146,8 @@ def _safe_merge(
         "tax_breakdown": [],
         "lines": lines_raw,
     }
-    merged.update(headers)
-    merged.update(totals)
+    merged.update({k: v for k, v in headers.items() if k not in _PROTECTED_KEYS})
+    merged.update({k: v for k, v in totals.items() if k not in _PROTECTED_KEYS})
 
     review_reasons: list[str] = []
 
@@ -163,7 +178,27 @@ def _safe_merge(
                     merged[field] = _default_for_annotation(field_info.annotation)
                 else:
                     merged[field] = None
-            invoice = Invoice.model_validate(merged)
+            try:
+                invoice = Invoice.model_validate(merged)
+            except ValidationError as exc:
+                # Last resort: use absolute minimum defaults
+                invoice = Invoice(
+                    invoice_type=invoice_type,
+                    invoice_number="[extraction_failed]",
+                    issue_date=date(2000, 1, 1),
+                    issuer_name="[extraction_failed]",
+                    issuer_cif="[extraction_failed]",
+                    recipient_name="[extraction_failed]",
+                    recipient_cif="[extraction_failed]",
+                    lines=[],
+                    tax_breakdown=[],
+                    subtotal=Decimal("0"),
+                    total_iva=Decimal("0"),
+                    total_amount=Decimal("0"),
+                    source_file=source_file,
+                    extraction_confidence=0.0,
+                )
+                review_reasons.append(f"Critical merge failure: {exc}")
 
         invoice.review_reasons = review_reasons
         invoice.requires_manual_review = bool(review_reasons)
