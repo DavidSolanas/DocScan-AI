@@ -1,6 +1,5 @@
 import uuid
 from datetime import UTC, datetime
-from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -39,7 +38,7 @@ class Document(Base):
     jobs: Mapped[list["Job"]] = relationship(
         "Job", back_populates="document", cascade="all, delete-orphan"
     )
-    extraction: Mapped[Optional["Extraction"]] = relationship(
+    extraction: Mapped["Extraction | None"] = relationship(
         "Extraction", back_populates="document", uselist=False, cascade="all, delete-orphan"
     )
 
@@ -89,11 +88,11 @@ class Extraction(Base):
     status: Mapped[str] = mapped_column(String, default="valid")             # valid|invalid|needs_review
     validation_errors: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
     json_path: Mapped[str] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
+        DateTime(timezone=True),
+        default=_utcnow,
+        onupdate=_utcnow,
     )
 
     document: Mapped["Document"] = relationship("Document", back_populates="extraction")

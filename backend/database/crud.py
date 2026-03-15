@@ -184,4 +184,4 @@ async def find_duplicate(
     else:
         stmt = stmt.where(Extraction.invoice_series == invoice_series)
     result = await db.execute(stmt)
-    return result.scalar_one_or_none()
+    return result.scalars().first()
