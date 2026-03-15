@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -18,6 +19,8 @@ from backend.schemas.jobs import JobResponse
 from backend.services.llm_service import LLMConnectionError, LLMResponseError, LLMTimeoutError, get_llm_service
 
 logger = logging.getLogger(__name__)
+
+_SENTINEL = "[extraction_failed]"
 
 router = APIRouter(prefix="/api/extract", tags=["extract"])
 
@@ -99,11 +102,11 @@ async def get_extraction_status(
 async def _run_extraction(document_id: str, job_id: str) -> None:
     async with AsyncSessionLocal() as db:
         try:
-            await crud.update_job(db, job_id, status="running")
+            await crud.update_job(db, job_id, status="running", started_at=datetime.now(UTC))
 
             doc = await crud.get_document(db, document_id)
             if doc is None or doc.text_content is None:
-                await crud.update_job(db, job_id, status="failed", error="No OCR text available — run OCR first")
+                await crud.update_job(db, job_id, status="failed", error="No OCR text available — run OCR first", completed_at=datetime.now(UTC))
                 return
 
             from backend.services.invoice_extractor import extract_invoice
@@ -112,12 +115,13 @@ async def _run_extraction(document_id: str, job_id: str) -> None:
             llm = get_llm_service()
             invoice, result = await extract_invoice(doc.text_content, doc.filename, llm)
 
-            # Check for duplicates
-            dup = await crud.find_duplicate(db, invoice.issuer_cif, invoice.invoice_number, invoice.invoice_series)
-            if dup and dup.document_id != document_id:
-                result.issues.append(
-                    ValidationIssue(field="invoice_number", message="DUPLICATE: same issuer CIF + invoice number already exists", severity="warning")
-                )
+            # Check for duplicates (skip if fields are sentinel values)
+            if invoice.issuer_cif != _SENTINEL and invoice.invoice_number != _SENTINEL:
+                dup = await crud.find_duplicate(db, invoice.issuer_cif, invoice.invoice_number, invoice.invoice_series)
+                if dup and dup.document_id != document_id:
+                    result.issues.append(
+                        ValidationIssue(field="invoice_number", message="DUPLICATE: same issuer CIF + invoice number already exists", severity="warning")
+                    )
 
             # Write JSON
             settings = get_settings()
@@ -126,17 +130,17 @@ async def _run_extraction(document_id: str, job_id: str) -> None:
             json_path.write_text(invoice.model_dump_json(indent=2))
 
             await crud.upsert_extraction(db, document_id, invoice, result, str(json_path))
-            await crud.update_job(db, job_id, status="completed", progress=1.0)
+            await crud.update_job(db, job_id, status="completed", progress=1.0, completed_at=datetime.now(UTC))
 
         except LLMConnectionError as exc:
-            await crud.update_job(db, job_id, status="failed", error="Ollama unreachable")
+            await crud.update_job(db, job_id, status="failed", error="Ollama unreachable", completed_at=datetime.now(UTC))
             logger.error("LLM connection error for document %s: %s", document_id, exc)
         except LLMTimeoutError as exc:
-            await crud.update_job(db, job_id, status="failed", error="Ollama timed out")
+            await crud.update_job(db, job_id, status="failed", error="Ollama timed out", completed_at=datetime.now(UTC))
             logger.error("LLM timeout for document %s: %s", document_id, exc)
         except LLMResponseError as exc:
-            await crud.update_job(db, job_id, status="failed", error=f"LLM response error: {exc}")
+            await crud.update_job(db, job_id, status="failed", error=f"LLM response error: {exc}", completed_at=datetime.now(UTC))
             logger.error("LLM response error for document %s: %s", document_id, exc)
         except Exception as exc:
-            await crud.update_job(db, job_id, status="failed", error=str(exc))
+            await crud.update_job(db, job_id, status="failed", error=str(exc), completed_at=datetime.now(UTC))
             logger.exception("Extraction failed for document %s", document_id)
