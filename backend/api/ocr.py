@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime
@@ -124,6 +125,14 @@ async def ocr_document_task(
                 result=result_json,
                 completed_at=datetime.now(UTC),
             )
+
+            # Auto-trigger extraction if document looks like an invoice
+            from backend.services.invoice_extractor import is_likely_invoice
+            if is_likely_invoice(result.full_text):
+                from backend.api.extract import _run_extraction
+                extraction_job = await create_job(db, document_id=document_id, job_type="extraction")
+                asyncio.create_task(_run_extraction(document_id, extraction_job.id))
+
         except Exception as exc:
             logger.exception("OCR failed for document %s", document_id)
             await update_document(db, document_id, status="failed")
