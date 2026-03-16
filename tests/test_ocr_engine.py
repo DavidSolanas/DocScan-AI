@@ -413,3 +413,120 @@ async def test_ocr_page_glm_garbage_output_low_confidence():
 
     assert result.average_confidence == 30.0
     assert result.low_confidence is True
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ocr_page_routed
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_glm_ocr_success_returns_glm_engine():
+    """Clean GLM-OCR output → engine_used = GLM_OCR."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="Factura 123 Total 100€")
+
+    with patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider):
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=True)
+
+    assert engine == OCREngine.GLM_OCR
+    assert result.text == "Factura 123 Total 100€"
+
+
+@pytest.mark.asyncio
+async def test_glm_ocr_empty_output_falls_back_to_tesseract():
+    """Empty GLM-OCR output → Tesseract fallback."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="")
+
+    with (
+        patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider),
+        patch("backend.services.ocr_engine.pytesseract.image_to_string", return_value="Fallback text"),
+        patch(
+            "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
+            return_value=SAMPLE_HOCR.encode("utf-8"),
+        ),
+    ):
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=True)
+
+    assert engine == OCREngine.TESSERACT
+    assert result.text == "Fallback text"
+
+
+@pytest.mark.asyncio
+async def test_glm_ocr_garbage_output_falls_back_to_tesseract():
+    """High garbage ratio → low_confidence → Tesseract fallback."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="###^^^&&&***~~~" * 5)
+
+    with (
+        patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider),
+        patch("backend.services.ocr_engine.pytesseract.image_to_string", return_value="Clean text"),
+        patch(
+            "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
+            return_value=SAMPLE_HOCR.encode("utf-8"),
+        ),
+    ):
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=True)
+
+    assert engine == OCREngine.TESSERACT
+
+
+@pytest.mark.asyncio
+async def test_glm_ocr_ollama_error_falls_back_to_tesseract():
+    """Ollama connection error → Tesseract fallback, error never surfaces."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from backend.services.llm_service import LLMConnectionError
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(side_effect=LLMConnectionError("offline"))
+
+    with (
+        patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider),
+        patch("backend.services.ocr_engine.pytesseract.image_to_string", return_value="Tesseract text"),
+        patch(
+            "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
+            return_value=SAMPLE_HOCR.encode("utf-8"),
+        ),
+    ):
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=True)
+
+    assert engine == OCREngine.TESSERACT
+    assert result.text == "Tesseract text"
+
+
+@pytest.mark.asyncio
+async def test_glm_ocr_disabled_uses_tesseract_directly():
+    """glm_ocr_enabled=False → Tesseract runs directly, GLM-OCR never called."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="should not be called")
+
+    with (
+        patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider),
+        patch("backend.services.ocr_engine.pytesseract.image_to_string", return_value="Direct tesseract"),
+        patch(
+            "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
+            return_value=SAMPLE_HOCR.encode("utf-8"),
+        ),
+    ):
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=False)
+
+    assert engine == OCREngine.TESSERACT
+    mock_provider.complete_vision.assert_not_called()

@@ -318,6 +318,31 @@ async def ocr_page_paddleocr(
 # Dual-engine routing
 # ──────────────────────────────────────────────────────────────────────────────
 
+async def ocr_page_routed(
+    image: np.ndarray,
+    page_number: int,
+    lang: str = "spa+eng",
+    psm: int = 3,
+    confidence_threshold: float = 70.0,
+    glm_ocr_enabled: bool = True,
+) -> tuple[OCRPageResult, OCREngine]:
+    """Route OCR: GLM-OCR (primary) → Tesseract (fallback).
+
+    GLM-OCR errors are caught silently — the API caller never sees engine failures.
+    lang/psm are passed to Tesseract only; GLM-OCR reads its model from config.
+    """
+    if glm_ocr_enabled:
+        try:
+            result = await ocr_page_glm(image, page_number, confidence_threshold)
+            if not result.low_confidence:
+                return result, OCREngine.GLM_OCR
+        except Exception:
+            pass  # Any error (Ollama down, encoding failure, etc.) → Tesseract
+
+    tesseract_result = await ocr_page(image, page_number, lang, psm, confidence_threshold)
+    return tesseract_result, OCREngine.TESSERACT
+
+
 async def ocr_page_dual_engine(
     image: np.ndarray,
     page_number: int,
