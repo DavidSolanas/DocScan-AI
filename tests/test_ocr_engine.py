@@ -124,11 +124,11 @@ def test_ocr_engine_enum_values():
 # ──────────────────────────────────────────────────────────────────────────────
 
 def test_garbage_ratio_clean_text():
-    assert _garbage_ratio("Factura 123 Total 100€") < 0.15
+    assert _garbage_ratio("Factura 123 Total 100€") == 0.0
 
 
 def test_garbage_ratio_garbage_text():
-    assert _garbage_ratio("###^^^&&&***~~~" * 5) > 0.15
+    assert _garbage_ratio("###^^^&&&***~~~" * 5) == 1.0
 
 
 def test_garbage_ratio_empty_string():
