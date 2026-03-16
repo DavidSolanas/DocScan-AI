@@ -1,6 +1,7 @@
 # tests/test_llm_service.py
 from __future__ import annotations
 
+import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -148,3 +149,70 @@ async def test_get_llm_service_returns_llm_service():
     get_settings.cache_clear()
     svc = get_llm_service()
     assert isinstance(svc, LLMService)
+
+
+def _mock_chat_httpx_client(response_text: str = "extracted text", status_code: int = 200):
+    """Mock for /api/chat — response key is message.content (not response)."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.json.return_value = {"message": {"content": response_text}}
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    return mock_client
+
+
+async def test_complete_vision_uses_chat_endpoint():
+    """complete_vision must POST to /api/chat, not /api/generate."""
+    mock_client = _mock_chat_httpx_client()
+    with patch("backend.services.llm_service.httpx.AsyncClient", return_value=mock_client):
+        provider = OllamaProvider(model="glm-ocr", host="http://localhost:11434", timeout=30)
+        await provider.complete_vision("OCR this", b"fake-image")
+    url = mock_client.post.call_args[0][0]
+    assert url.endswith("/api/chat")
+
+
+async def test_complete_vision_base64_encodes_image():
+    """Image bytes must be base64-encoded and placed in the images array."""
+    image_bytes = b"fake-image-data"
+    expected_b64 = base64.b64encode(image_bytes).decode()
+    mock_client = _mock_chat_httpx_client()
+    with patch("backend.services.llm_service.httpx.AsyncClient", return_value=mock_client):
+        provider = OllamaProvider(model="glm-ocr", host="http://localhost:11434", timeout=30)
+        await provider.complete_vision("OCR this", image_bytes)
+    payload = mock_client.post.call_args[1]["json"]
+    assert payload["messages"][0]["images"][0] == expected_b64
+
+
+async def test_complete_vision_parses_message_content():
+    """Response text is extracted from message.content, not response."""
+    mock_client = _mock_chat_httpx_client("Factura nº 123")
+    with patch("backend.services.llm_service.httpx.AsyncClient", return_value=mock_client):
+        provider = OllamaProvider(model="glm-ocr", host="http://localhost:11434", timeout=30)
+        result = await provider.complete_vision("OCR this", b"data")
+    assert result == "Factura nº 123"
+
+
+async def test_complete_vision_connection_error_raises_llm_connection_error():
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+    with patch("backend.services.llm_service.httpx.AsyncClient", return_value=mock_client):
+        provider = OllamaProvider(model="glm-ocr", host="http://localhost:11434", timeout=30)
+        with pytest.raises(LLMConnectionError):
+            await provider.complete_vision("OCR this", b"data")
+
+
+async def test_complete_vision_timeout_raises_llm_timeout_error():
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+    with patch("backend.services.llm_service.httpx.AsyncClient", return_value=mock_client):
+        provider = OllamaProvider(model="glm-ocr", host="http://localhost:11434", timeout=30)
+        with pytest.raises(LLMTimeoutError):
+            await provider.complete_vision("OCR this", b"data")

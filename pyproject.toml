@@ -16,13 +16,13 @@ dependencies = [
     "pytesseract>=0.3.13",
     "pillow>=12.1.1",
     "pdfplumber>=0.11",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
 advanced-ocr = [
     "camelot-py>=1.0.9",
     "layoutparser>=0.3.4",
-    "paddleocr>=3.4.0",
 ]
 
 [dependency-groups]

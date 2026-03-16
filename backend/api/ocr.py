@@ -18,7 +18,7 @@ from backend.database.engine import AsyncSessionLocal, get_db
 from backend.database.models import Job
 from backend.schemas.jobs import JobResponse
 from backend.schemas.ocr import OCRPageSchema, OCRResultResponse, OCRTriggerRequest
-from backend.services.ocr_engine import build_ocr_result, ocr_page_dual_engine
+from backend.services.ocr_engine import build_ocr_result, ocr_page_routed
 from backend.services.preprocessing import preprocess_image
 from backend.utils.image_utils import load_image, pdf_page_count, pdf_page_to_image
 
@@ -36,12 +36,12 @@ async def ocr_document_task(
     lang: str,
     do_preprocess: bool,
 ) -> None:
-    """Background task: run OCR on a document page-by-page with dual-engine routing."""
+    """Background task: run OCR on a document page-by-page with GLM-OCR → Tesseract routing."""
     settings = get_settings()
     dpi = settings.OCR_TARGET_DPI
     psm = settings.TESSERACT_PSM
     confidence_threshold = settings.OCR_CONFIDENCE_THRESHOLD
-    paddleocr_enabled = settings.PADDLEOCR_ENABLED
+    glm_ocr_enabled = settings.GLM_OCR_ENABLED
 
     async with AsyncSessionLocal() as db:
         await update_job(
@@ -63,8 +63,8 @@ async def ocr_document_task(
                     if do_preprocess:
                         preprocessed = await preprocess_image(image)
                         image = preprocessed.image
-                    page_result, engine_used = await ocr_page_dual_engine(
-                        image, i + 1, lang, psm, confidence_threshold, paddleocr_enabled
+                    page_result, engine_used = await ocr_page_routed(
+                        image, i + 1, lang, psm, confidence_threshold, glm_ocr_enabled
                     )
                     page_results.append(page_result)
                     engine_per_page.append(engine_used.value)
@@ -79,8 +79,8 @@ async def ocr_document_task(
                 if do_preprocess:
                     preprocessed = await preprocess_image(image)
                     image = preprocessed.image
-                page_result, engine_used = await ocr_page_dual_engine(
-                    image, 1, lang, psm, confidence_threshold, paddleocr_enabled
+                page_result, engine_used = await ocr_page_routed(
+                    image, 1, lang, psm, confidence_threshold, glm_ocr_enabled
                 )
                 page_results.append(page_result)
                 engine_per_page.append(engine_used.value)

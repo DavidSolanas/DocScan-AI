@@ -53,7 +53,8 @@ class Settings(BaseSettings):
     OCR_TARGET_DPI: int = 300
     OCR_CONFIDENCE_THRESHOLD: float = 70.0
     PREPROCESSING_ENABLED: bool = True
-    PADDLEOCR_ENABLED: bool = True
+    GLM_OCR_ENABLED: bool = True
+    GLM_OCR_MODEL: str = "glm-ocr"
     LAYOUT_DETECTION_ENABLED: bool = True
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b"

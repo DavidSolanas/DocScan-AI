@@ -11,6 +11,7 @@ from backend.services.ocr_engine import (
     OCREngine,
     OCRResult,
     _parse_hocr,
+    _garbage_ratio,
     build_ocr_result,
 )
 
@@ -114,221 +115,201 @@ async def test_ocr_page_mocked():
 
 def test_ocr_engine_enum_values():
     assert OCREngine.TESSERACT == "tesseract"
-    assert OCREngine.PADDLEOCR == "paddleocr"
+    assert OCREngine.GLM_OCR == "glm_ocr"
+    assert not hasattr(OCREngine, "PADDLEOCR")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# _paddleocr_page_sync
+# _garbage_ratio
 # ──────────────────────────────────────────────────────────────────────────────
 
-def test_paddleocr_page_sync_raises_when_not_installed():
-    from backend.services.ocr_engine import _paddleocr_page_sync
+def test_garbage_ratio_clean_text():
+    assert _garbage_ratio("Factura 123 Total 100€") == 0.0
+
+
+def test_garbage_ratio_garbage_text():
+    assert _garbage_ratio("###^^^&&&***~~~" * 5) == 1.0
+
+
+def test_garbage_ratio_empty_string():
+    assert _garbage_ratio("") == 1.0
+
+
+def test_garbage_ratio_all_valid():
+    assert _garbage_ratio("Hello World!") == 0.0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ocr_page_glm
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_ocr_page_glm_success():
+    """GLM-OCR clean output → confidence 85.0, low_confidence=False, empty words."""
+    from backend.services.ocr_engine import ocr_page_glm
+    from unittest.mock import AsyncMock
 
     image = np.zeros((100, 200), dtype=np.uint8)
-    with patch.dict("sys.modules", {"paddleocr": None}):
-        with pytest.raises(RuntimeError, match="PaddleOCR not installed"):
-            _paddleocr_page_sync(image, page_number=1)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="Factura nº 123\nTotal: 121,00 €")
 
-
-def test_paddleocr_page_sync_mocked():
-    from backend.services.ocr_engine import _paddleocr_page_sync
-
-    image = np.zeros((100, 200), dtype=np.uint8)
-
-    # Simulate PaddleOCR result: list of list of [bbox_points, (text, score)]
-    fake_result = [
-        [
-            [[10, 10], [100, 10], [100, 30], [10, 30]],
-            ("Factura", 0.92),
-        ],
-        [
-            [[10, 40], [200, 40], [200, 60], [10, 60]],
-            ("NIF: B12345678", 0.85),
-        ],
-    ]
-
-    mock_paddle_instance = MagicMock()
-    mock_paddle_instance.ocr.return_value = [fake_result]
-
-    mock_paddleocr_module = MagicMock()
-    mock_paddleocr_module.PaddleOCR.return_value = mock_paddle_instance
-
-    with patch.dict("sys.modules", {"paddleocr": mock_paddleocr_module}):
-        result = _paddleocr_page_sync(image, page_number=1, lang="spa+eng")
+    with patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider):
+        result = await ocr_page_glm(image, 1)
 
     assert result.page_number == 1
-    assert "Factura" in result.text
-    assert len(result.words) == 2
-    assert result.words[0].confidence == pytest.approx(92.0)
-    assert result.words[1].text == "NIF: B12345678"
+    assert result.text == "Factura nº 123\nTotal: 121,00 €"
+    assert result.average_confidence == 85.0
+    assert result.low_confidence is False
+    assert result.words == []
+
+
+@pytest.mark.asyncio
+async def test_ocr_page_glm_empty_output_low_confidence():
+    """GLM-OCR empty output → confidence 0.0, low_confidence=True."""
+    from backend.services.ocr_engine import ocr_page_glm
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="   ")  # whitespace only
+
+    with patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider):
+        result = await ocr_page_glm(image, 1)
+
+    assert result.average_confidence == 0.0
+    assert result.low_confidence is True
+
+
+@pytest.mark.asyncio
+async def test_ocr_page_glm_garbage_output_low_confidence():
+    """GLM-OCR high garbage ratio → confidence 30.0, low_confidence=True."""
+    from backend.services.ocr_engine import ocr_page_glm
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    garbage = "###^^^&&&***~~~" * 5
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value=garbage)
+
+    with patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider):
+        result = await ocr_page_glm(image, 1)
+
+    assert result.average_confidence == 30.0
+    assert result.low_confidence is True
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Dual-engine routing
+# ocr_page_routed
 # ──────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_dual_engine_uses_tesseract_on_high_confidence():
-    """When Tesseract confidence is >= threshold, PaddleOCR should not be called."""
-    from backend.services.ocr_engine import ocr_page_dual_engine
+async def test_glm_ocr_success_returns_glm_engine():
+    """Clean GLM-OCR output → engine_used = GLM_OCR."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from unittest.mock import AsyncMock
 
     image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="Factura 123 Total 100€")
 
-    high_conf_hocr = SAMPLE_HOCR  # avg confidence ~74%, above 70 threshold
+    with patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider):
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=True)
+
+    assert engine == OCREngine.GLM_OCR
+    assert result.text == "Factura 123 Total 100€"
+
+
+@pytest.mark.asyncio
+async def test_glm_ocr_empty_output_falls_back_to_tesseract():
+    """Empty GLM-OCR output → Tesseract fallback."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="")
 
     with (
-        patch(
-            "backend.services.ocr_engine.pytesseract.image_to_string",
-            return_value="High confidence text",
-        ),
+        patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider),
+        patch("backend.services.ocr_engine.pytesseract.image_to_string", return_value="Fallback text"),
         patch(
             "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
-            return_value=high_conf_hocr.encode("utf-8"),
+            return_value=SAMPLE_HOCR.encode("utf-8"),
         ),
     ):
-        result, engine = await ocr_page_dual_engine(
-            image, 1, "spa+eng", 3, 70.0, paddleocr_enabled=True
-        )
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=True)
 
     assert engine == OCREngine.TESSERACT
-    assert result.page_number == 1
+    assert result.text == "Fallback text"
 
 
 @pytest.mark.asyncio
-async def test_dual_engine_falls_back_to_paddle_on_low_confidence():
-    """When Tesseract gives low confidence, PaddleOCR should be tried."""
-    from backend.services.ocr_engine import ocr_page_dual_engine
+async def test_glm_ocr_garbage_output_falls_back_to_tesseract():
+    """High garbage ratio → low_confidence → Tesseract fallback."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from unittest.mock import AsyncMock
 
     image = np.zeros((100, 200), dtype=np.uint8)
-
-    # HOCR with only a 45-confidence word → low_confidence=True
-    low_conf_hocr = """<html><body>
-    <span class="ocrx_word" title="bbox 0 0 50 20; x_wconf 45">blurry</span>
-    </body></html>"""
-
-    fake_paddle_result = [
-        [
-            [[10, 10], [100, 10], [100, 30], [10, 30]],
-            ("ClearText", 0.95),
-        ]
-    ]
-    mock_paddle_instance = MagicMock()
-    mock_paddle_instance.ocr.return_value = [fake_paddle_result]
-    mock_paddleocr_module = MagicMock()
-    mock_paddleocr_module.PaddleOCR.return_value = mock_paddle_instance
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="###^^^&&&***~~~" * 5)
 
     with (
-        patch(
-            "backend.services.ocr_engine.pytesseract.image_to_string",
-            return_value="blurry",
-        ),
+        patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider),
+        patch("backend.services.ocr_engine.pytesseract.image_to_string", return_value="Clean text"),
         patch(
             "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
-            return_value=low_conf_hocr.encode("utf-8"),
-        ),
-        patch.dict("sys.modules", {"paddleocr": mock_paddleocr_module}),
-    ):
-        result, engine = await ocr_page_dual_engine(
-            image, 1, "spa+eng", 3, 70.0, paddleocr_enabled=True
-        )
-
-    assert engine == OCREngine.PADDLEOCR
-    assert "ClearText" in result.text
-    assert result.average_confidence == pytest.approx(95.0)
-
-
-@pytest.mark.asyncio
-async def test_dual_engine_skips_paddle_when_disabled():
-    """When paddleocr_enabled=False, should always use Tesseract."""
-    from backend.services.ocr_engine import ocr_page_dual_engine
-
-    image = np.zeros((100, 200), dtype=np.uint8)
-    low_conf_hocr = """<html><body>
-    <span class="ocrx_word" title="bbox 0 0 50 20; x_wconf 30">bad</span>
-    </body></html>"""
-
-    with (
-        patch(
-            "backend.services.ocr_engine.pytesseract.image_to_string",
-            return_value="bad",
-        ),
-        patch(
-            "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
-            return_value=low_conf_hocr.encode("utf-8"),
+            return_value=SAMPLE_HOCR.encode("utf-8"),
         ),
     ):
-        result, engine = await ocr_page_dual_engine(
-            image, 1, "spa+eng", 3, 70.0, paddleocr_enabled=False
-        )
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=True)
 
     assert engine == OCREngine.TESSERACT
 
 
 @pytest.mark.asyncio
-async def test_dual_engine_keeps_tesseract_when_paddle_not_installed():
-    """When PaddleOCR is not installed, fall back to Tesseract result."""
-    from backend.services.ocr_engine import ocr_page_dual_engine
+async def test_glm_ocr_ollama_error_falls_back_to_tesseract():
+    """Ollama connection error → Tesseract fallback, error never surfaces."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from backend.services.llm_service import LLMConnectionError
+    from unittest.mock import AsyncMock
 
     image = np.zeros((100, 200), dtype=np.uint8)
-    low_conf_hocr = """<html><body>
-    <span class="ocrx_word" title="bbox 0 0 50 20; x_wconf 30">bad</span>
-    </body></html>"""
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(side_effect=LLMConnectionError("offline"))
 
     with (
-        patch(
-            "backend.services.ocr_engine.pytesseract.image_to_string",
-            return_value="bad",
-        ),
+        patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider),
+        patch("backend.services.ocr_engine.pytesseract.image_to_string", return_value="Tesseract text"),
         patch(
             "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
-            return_value=low_conf_hocr.encode("utf-8"),
+            return_value=SAMPLE_HOCR.encode("utf-8"),
         ),
-        patch.dict("sys.modules", {"paddleocr": None}),
     ):
-        result, engine = await ocr_page_dual_engine(
-            image, 1, "spa+eng", 3, 70.0, paddleocr_enabled=True
-        )
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=True)
 
-    # PaddleOCR not installed → RuntimeError caught → keep Tesseract
     assert engine == OCREngine.TESSERACT
+    assert result.text == "Tesseract text"
 
 
 @pytest.mark.asyncio
-async def test_dual_engine_keeps_tesseract_when_paddle_has_lower_confidence():
-    """If PaddleOCR confidence is lower than Tesseract, keep Tesseract result."""
-    from backend.services.ocr_engine import ocr_page_dual_engine
+async def test_glm_ocr_disabled_uses_tesseract_directly():
+    """glm_ocr_enabled=False → Tesseract runs directly, GLM-OCR never called."""
+    from backend.services.ocr_engine import ocr_page_routed
+    from unittest.mock import AsyncMock
 
     image = np.zeros((100, 200), dtype=np.uint8)
-    low_conf_hocr = """<html><body>
-    <span class="ocrx_word" title="bbox 0 0 50 20; x_wconf 60">text</span>
-    </body></html>"""
-
-    # PaddleOCR returns even lower confidence
-    fake_paddle_result = [
-        [
-            [[0, 0], [50, 0], [50, 20], [0, 20]],
-            ("worse", 0.40),
-        ]
-    ]
-    mock_paddle_instance = MagicMock()
-    mock_paddle_instance.ocr.return_value = [fake_paddle_result]
-    mock_paddleocr_module = MagicMock()
-    mock_paddleocr_module.PaddleOCR.return_value = mock_paddle_instance
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="should not be called")
 
     with (
-        patch(
-            "backend.services.ocr_engine.pytesseract.image_to_string",
-            return_value="text",
-        ),
+        patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider),
+        patch("backend.services.ocr_engine.pytesseract.image_to_string", return_value="Direct tesseract"),
         patch(
             "backend.services.ocr_engine.pytesseract.image_to_pdf_or_hocr",
-            return_value=low_conf_hocr.encode("utf-8"),
+            return_value=SAMPLE_HOCR.encode("utf-8"),
         ),
-        patch.dict("sys.modules", {"paddleocr": mock_paddleocr_module}),
     ):
-        result, engine = await ocr_page_dual_engine(
-            image, 1, "spa+eng", 3, 70.0, paddleocr_enabled=True
-        )
+        result, engine = await ocr_page_routed(image, 1, glm_ocr_enabled=False)
 
-    # Tesseract (60%) > PaddleOCR (40%) → keep Tesseract
     assert engine == OCREngine.TESSERACT
+    mock_provider.complete_vision.assert_not_called()

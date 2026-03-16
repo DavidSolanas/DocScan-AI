@@ -1,6 +1,7 @@
 # backend/services/llm_service.py
 from __future__ import annotations
 
+import base64
 import json
 from typing import Protocol, runtime_checkable
 
@@ -62,6 +63,32 @@ class OllamaProvider:
                 response = await client.post(f"{self.host}/api/generate", json=payload)
                 response.raise_for_status()
                 return response.json()["response"]
+            except httpx.ConnectError as exc:
+                raise LLMConnectionError(str(exc)) from exc
+            except httpx.TimeoutException as exc:
+                raise LLMTimeoutError(str(exc)) from exc
+            except httpx.HTTPStatusError as exc:
+                raise LLMResponseError(f"HTTP {exc.response.status_code}: {exc}") from exc
+            except (KeyError, ValueError) as exc:
+                raise LLMResponseError(str(exc)) from exc
+
+    async def complete_vision(self, prompt: str, image_bytes: bytes) -> str:
+        """Send an image + text prompt to Ollama via /api/chat (multimodal).
+
+        Uses base64-encoded image in the messages[].images array.
+        Response text is at message.content (NOT response like /api/generate).
+        """
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt, "images": [b64]}],
+            "stream": False,
+        }
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                response = await client.post(f"{self.host}/api/chat", json=payload)
+                response.raise_for_status()
+                return response.json()["message"]["content"]
             except httpx.ConnectError as exc:
                 raise LLMConnectionError(str(exc)) from exc
             except httpx.TimeoutException as exc:
