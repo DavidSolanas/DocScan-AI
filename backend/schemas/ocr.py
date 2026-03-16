@@ -1,5 +1,7 @@
 """OCR-related Pydantic schemas."""
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -14,7 +16,7 @@ class OCRPageSchema(BaseModel):
     average_confidence: float
     low_confidence: bool
     word_count: int
-    engine_used: str = "tesseract"
+    engine_used: Literal["tesseract", "glm_ocr"]
 
 
 class OCRResultResponse(BaseModel):
