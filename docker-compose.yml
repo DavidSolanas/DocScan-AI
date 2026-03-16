@@ -18,11 +18,27 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11435:11434"
     volumes:
       - ollama-models:/root/.ollama
-    ports:
-      - "11434:11434"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Sidecar container to pull models after Ollama is healthy
+  model-loader:
+    image: curlimages/curl:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"glm-ocr\"}'"
+    restart: "no"
 
 volumes:
   docscanai-data:
