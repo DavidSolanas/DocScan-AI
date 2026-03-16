@@ -208,6 +208,44 @@ def _make_glm_provider() -> "OllamaProvider":
     )
 
 
+async def ocr_page_glm(
+    image: np.ndarray,
+    page_number: int,
+    confidence_threshold: float = 70.0,
+) -> OCRPageResult:
+    """Run GLM-OCR via Ollama on a single page image.
+
+    Native async — directly awaits complete_vision(), no thread offload needed.
+    Returns OCRPageResult with empty words list (GLM-OCR has no word-level bboxes).
+    """
+    provider = _make_glm_provider()
+
+    # Encode numpy image → PNG bytes using PIL (already imported)
+    pil_image = Image.fromarray(image)
+    buf = io.BytesIO()
+    pil_image.save(buf, format="PNG")
+    image_bytes = buf.getvalue()
+
+    text = await provider.complete_vision(_GLM_OCR_PROMPT, image_bytes)
+    text = text.strip()
+
+    ratio = _garbage_ratio(text)
+    if not text:
+        confidence = 0.0
+    elif ratio > 0.15:
+        confidence = 30.0
+    else:
+        confidence = 85.0
+
+    return OCRPageResult(
+        page_number=page_number,
+        text=text,
+        words=[],  # GLM-OCR provides no word-level bounding boxes
+        average_confidence=confidence,
+        low_confidence=confidence < confidence_threshold,
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # PaddleOCR engine
 # ──────────────────────────────────────────────────────────────────────────────

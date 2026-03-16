@@ -354,3 +354,62 @@ async def test_dual_engine_keeps_tesseract_when_paddle_has_lower_confidence():
 
     # Tesseract (60%) > PaddleOCR (40%) → keep Tesseract
     assert engine == OCREngine.TESSERACT
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ocr_page_glm
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_ocr_page_glm_success():
+    """GLM-OCR clean output → confidence 85.0, low_confidence=False, empty words."""
+    from backend.services.ocr_engine import ocr_page_glm
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="Factura nº 123\nTotal: 121,00 €")
+
+    with patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider):
+        result = await ocr_page_glm(image, 1)
+
+    assert result.page_number == 1
+    assert result.text == "Factura nº 123\nTotal: 121,00 €"
+    assert result.average_confidence == 85.0
+    assert result.low_confidence is False
+    assert result.words == []
+
+
+@pytest.mark.asyncio
+async def test_ocr_page_glm_empty_output_low_confidence():
+    """GLM-OCR empty output → confidence 0.0, low_confidence=True."""
+    from backend.services.ocr_engine import ocr_page_glm
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value="   ")  # whitespace only
+
+    with patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider):
+        result = await ocr_page_glm(image, 1)
+
+    assert result.average_confidence == 0.0
+    assert result.low_confidence is True
+
+
+@pytest.mark.asyncio
+async def test_ocr_page_glm_garbage_output_low_confidence():
+    """GLM-OCR high garbage ratio → confidence 30.0, low_confidence=True."""
+    from backend.services.ocr_engine import ocr_page_glm
+    from unittest.mock import AsyncMock
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    garbage = "###^^^&&&***~~~" * 5
+    mock_provider = MagicMock()
+    mock_provider.complete_vision = AsyncMock(return_value=garbage)
+
+    with patch("backend.services.ocr_engine._make_glm_provider", return_value=mock_provider):
+        result = await ocr_page_glm(image, 1)
+
+    assert result.average_confidence == 30.0
+    assert result.low_confidence is True
