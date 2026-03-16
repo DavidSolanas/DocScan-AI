@@ -38,6 +38,9 @@ class Document(Base):
     jobs: Mapped[list["Job"]] = relationship(
         "Job", back_populates="document", cascade="all, delete-orphan"
     )
+    extraction: Mapped["Extraction | None"] = relationship(
+        "Extraction", back_populates="document", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class Job(Base):
@@ -65,3 +68,31 @@ class Job(Base):
     )
 
     document: Mapped["Document"] = relationship("Document", back_populates="jobs")
+
+
+class Extraction(Base):
+    __tablename__ = "extractions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    document_id: Mapped[str] = mapped_column(String, ForeignKey("documents.id"), unique=True)
+    invoice_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    invoice_number: Mapped[str | None] = mapped_column(String, nullable=True)
+    invoice_series: Mapped[str | None] = mapped_column(String, nullable=True)
+    issuer_cif: Mapped[str | None] = mapped_column(String, nullable=True)
+    issuer_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    recipient_cif: Mapped[str | None] = mapped_column(String, nullable=True)
+    recipient_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    issue_date: Mapped[str | None] = mapped_column(String, nullable=True)    # ISO 8601
+    total_amount: Mapped[str | None] = mapped_column(String, nullable=True)  # string, never float
+    currency: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="valid")             # valid|invalid|needs_review
+    validation_errors: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    json_path: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+        onupdate=_utcnow,
+    )
+
+    document: Mapped["Document"] = relationship("Document", back_populates="extraction")
