@@ -1,4 +1,4 @@
-"""Dual OCR engine: Tesseract (primary) + GLM-OCR (fallback on low confidence)."""
+"""Dual OCR engine: GLM-OCR (primary, via Ollama) + Tesseract (fallback)."""
 
 from __future__ import annotations
 
