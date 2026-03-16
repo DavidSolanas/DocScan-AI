@@ -1,8 +1,9 @@
-"""Dual OCR engine: Tesseract (primary) + PaddleOCR (fallback on low confidence)."""
+"""Dual OCR engine: Tesseract (primary) + GLM-OCR (fallback on low confidence)."""
 
 from __future__ import annotations
 
 import asyncio
+import io
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -15,7 +16,7 @@ from PIL import Image
 
 class OCREngine(str, Enum):
     TESSERACT = "tesseract"
-    PADDLEOCR = "paddleocr"
+    GLM_OCR = "glm_ocr"
 
 
 @dataclass
@@ -168,6 +169,42 @@ def build_ocr_result(page_results: list[OCRPageResult]) -> OCRResult:
         full_text=full_text,
         average_confidence=round(avg_confidence, 1),
         low_confidence_pages=low_pages,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GLM-OCR engine
+# ──────────────────────────────────────────────────────────────────────────────
+
+_VALID_PUNCT = set('.,;:!?()[]{}"-/@€$%')
+
+_GLM_OCR_PROMPT = (
+    "Perform OCR on this document image. Extract all text exactly as it appears, "
+    "preserving reading order (top to bottom, left to right, respecting columns). "
+    "Return only the extracted text. No commentary, no formatting, no markdown."
+)
+
+
+def _garbage_ratio(text: str) -> float:
+    """Fraction of chars that are not alphanumeric, whitespace, or standard punctuation."""
+    if not text:
+        return 1.0
+    garbage = sum(
+        1 for c in text
+        if not c.isalnum() and not c.isspace() and c not in _VALID_PUNCT
+    )
+    return garbage / len(text)
+
+
+def _make_glm_provider() -> "OllamaProvider":
+    """Create an OllamaProvider configured for GLM-OCR. Patched in tests."""
+    from backend.services.llm_service import OllamaProvider
+    from backend.config import get_settings
+    settings = get_settings()
+    return OllamaProvider(
+        model=settings.GLM_OCR_MODEL,
+        host=settings.OLLAMA_HOST,
+        timeout=float(settings.OLLAMA_TIMEOUT),
     )
 
 

@@ -11,6 +11,7 @@ from backend.services.ocr_engine import (
     OCREngine,
     OCRResult,
     _parse_hocr,
+    _garbage_ratio,
     build_ocr_result,
 )
 
@@ -114,7 +115,28 @@ async def test_ocr_page_mocked():
 
 def test_ocr_engine_enum_values():
     assert OCREngine.TESSERACT == "tesseract"
-    assert OCREngine.PADDLEOCR == "paddleocr"
+    assert OCREngine.GLM_OCR == "glm_ocr"
+    assert not hasattr(OCREngine, "PADDLEOCR")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# _garbage_ratio
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_garbage_ratio_clean_text():
+    assert _garbage_ratio("Factura 123 Total 100€") < 0.15
+
+
+def test_garbage_ratio_garbage_text():
+    assert _garbage_ratio("###^^^&&&***~~~" * 5) > 0.15
+
+
+def test_garbage_ratio_empty_string():
+    assert _garbage_ratio("") == 1.0
+
+
+def test_garbage_ratio_all_valid():
+    assert _garbage_ratio("Hello World!") == 0.0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
