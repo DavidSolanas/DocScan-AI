@@ -22,7 +22,6 @@ dependencies = [
 advanced-ocr = [
     "camelot-py>=1.0.9",
     "layoutparser>=0.3.4",
-    "paddleocr>=3.4.0",
 ]
 
 [dependency-groups]
