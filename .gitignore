@@ -19,3 +19,13 @@ data/
 # Local model cache
 models/
 .worktrees/
+
+# Claude specific
+.claude/
+CLAUDE.md
+PROJECT_STATUS.md
+ROUTEPLAN.md
+docs/superpowers/
+
+# MCP specific
+.playwright-mcp/
