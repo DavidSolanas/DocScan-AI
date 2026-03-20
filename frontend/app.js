@@ -646,6 +646,7 @@ async function deleteDocument(docId, listItem) {
       document.getElementById('invoice-empty').style.display = 'none';
       document.getElementById('invoice-processing').style.display = 'none';
       document.getElementById('invoice-panel').style.display = 'none';
+      document.getElementById('invoice-panel').innerHTML = '';
       if (state.extractionPolling) {
         clearInterval(state.extractionPolling);
         state.extractionPolling = null;
@@ -827,11 +828,11 @@ async function loadInvoicePanel(docId) {
         } catch {}
       }, 2000);
     } else if (status === 'failed') {
-      document.getElementById('invoice-empty').style.display = 'block';
-      document.getElementById('invoice-empty').innerHTML = `
+      document.getElementById('invoice-panel').innerHTML = `
         <p>Extraction failed.</p>
         <button id="retry-extraction-btn" class="btn btn-primary">Retry Extraction</button>
       `;
+      document.getElementById('invoice-panel').style.display = 'block';
       document.getElementById('retry-extraction-btn').addEventListener('click', async () => {
         await runExtraction(docId);
       });
@@ -873,23 +874,27 @@ function renderInvoiceData(data) {
 
   // --- Critical Fields Card ---
   html += `<div style="margin-bottom:12px"><strong>Critical Fields</strong><table style="width:100%;border-collapse:collapse;margin-top:6px">`;
+  const cur = escHtml(anchor.currency || 'EUR');
   const criticalFields = [
-    ['Invoice Number', anchor.invoice_number],
-    ['Date', anchor.issue_date],
-    ['Issuer', anchor.issuer_name],
-    ['Issuer CIF', anchor.issuer_cif],
-    ['Recipient', anchor.recipient_name],
-    ['Recipient CIF', anchor.recipient_cif],
-    ['Base Imponible', anchor.base_imponible ? `${anchor.base_imponible} ${anchor.currency || 'EUR'}` : null],
-    ['IVA Rate', anchor.iva_rate ? `${anchor.iva_rate}%` : null],
-    ['IVA Amount', anchor.iva_amount ? `${anchor.iva_amount} ${anchor.currency || 'EUR'}` : null],
-    ['IRPF Rate', anchor.irpf_rate ? `${anchor.irpf_rate}%` : null],
-    ['IRPF Amount', anchor.irpf_amount ? `-${anchor.irpf_amount} ${anchor.currency || 'EUR'}` : null],
-    ['Total', anchor.total_amount ? `<strong>${anchor.total_amount} ${anchor.currency || 'EUR'}</strong>` : null],
+    ['Invoice Number', anchor.invoice_number ? escHtml(anchor.invoice_number) : null],
+    ['Date', anchor.issue_date ? escHtml(anchor.issue_date) : null],
+    ['Issuer', anchor.issuer_name ? escHtml(anchor.issuer_name) : null],
+    ['Issuer CIF', anchor.issuer_cif ? escHtml(anchor.issuer_cif) : null],
+    ['Recipient', anchor.recipient_name ? escHtml(anchor.recipient_name) : null],
+    ['Recipient CIF', anchor.recipient_cif ? escHtml(anchor.recipient_cif) : null],
+    ['Base Imponible', anchor.base_imponible ? `${escHtml(String(anchor.base_imponible))} ${cur}` : null],
+    ['IVA Rate', anchor.iva_rate ? `${escHtml(String(anchor.iva_rate))}%` : null],
+    ['IVA Amount', anchor.iva_amount ? `${escHtml(String(anchor.iva_amount))} ${cur}` : null],
+    ['IRPF Rate', anchor.irpf_rate ? `${escHtml(String(anchor.irpf_rate))}%` : null],
+    ['IRPF Amount', anchor.irpf_amount ? `-${escHtml(String(anchor.irpf_amount))} ${cur}` : null],
+    ['Total', anchor.total_amount ? `${escHtml(String(anchor.total_amount))} ${cur}` : null],
   ];
+  const totalLabel = 'Total';
   for (const [label, value] of criticalFields) {
     const display = value != null ? value : '<span style="color:var(--text-muted,#888)">—</span>';
-    html += `<tr><td style="padding:3px 8px 3px 0;color:var(--text-muted,#888);width:40%">${escHtml(label)}</td><td style="padding:3px 0">${display}</td></tr>`;
+    const isTotal = label === totalLabel;
+    const tdStyle = isTotal ? 'padding:3px 0;font-weight:bold' : 'padding:3px 0';
+    html += `<tr><td style="padding:3px 8px 3px 0;color:var(--text-muted,#888);width:40%">${escHtml(label)}</td><td style="${tdStyle}">${display}</td></tr>`;
   }
   html += `</table></div>`;
 
