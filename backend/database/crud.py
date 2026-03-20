@@ -6,8 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models import Document, Extraction, Job
-from backend.schemas.invoice import Invoice
-from backend.services.invoice_validator import ValidationResult
+from backend.schemas.extraction import ExtractionResult
 
 
 async def create_document(db: AsyncSession, **kwargs) -> Document:
@@ -92,10 +91,10 @@ async def update_job(db: AsyncSession, job_id: str, **kwargs) -> Job | None:
 # --- Extraction CRUD ---
 
 
-def _extraction_status(result: ValidationResult) -> str:
-    if not result.valid:
+def _extraction_status(result: ExtractionResult) -> str:
+    if any(i.severity == "error" for i in result.issues):
         return "invalid"
-    if result.requires_manual_review:
+    if result.requires_review:
         return "needs_review"
     return "valid"
 
@@ -103,23 +102,21 @@ def _extraction_status(result: ValidationResult) -> str:
 async def create_extraction(
     db: AsyncSession,
     document_id: str,
-    invoice: Invoice,
-    result: ValidationResult,
+    result: ExtractionResult,
     json_path: str,
 ) -> Extraction:
+    a = result.anchor
     extraction = Extraction(
         id=uuid.uuid4().hex,
         document_id=document_id,
-        invoice_type=invoice.invoice_type.value,
-        invoice_number=invoice.invoice_number,
-        invoice_series=invoice.invoice_series,
-        issuer_cif=invoice.issuer_cif,
-        issuer_name=invoice.issuer_name,
-        recipient_cif=invoice.recipient_cif,
-        recipient_name=invoice.recipient_name,
-        issue_date=str(invoice.issue_date) if invoice.issue_date else None,
-        total_amount=str(invoice.total_amount),
-        currency=invoice.currency,
+        invoice_number=a.invoice_number,
+        issuer_cif=a.issuer_cif,
+        issuer_name=a.issuer_name,
+        recipient_cif=a.recipient_cif,
+        recipient_name=a.recipient_name,
+        issue_date=a.issue_date,
+        total_amount=str(a.total_amount) if a.total_amount is not None else None,
+        currency=a.currency,
         status=_extraction_status(result),
         validation_errors=_json.dumps([asdict(i) for i in result.issues]) if result.issues else None,
         json_path=json_path,
@@ -142,27 +139,25 @@ async def get_extraction_by_document_id(
 async def upsert_extraction(
     db: AsyncSession,
     document_id: str,
-    invoice: Invoice,
-    result: ValidationResult,
+    result: ExtractionResult,
     json_path: str,
 ) -> Extraction:
     existing = await get_extraction_by_document_id(db, document_id)
     if existing is None:
-        return await create_extraction(db, document_id, invoice, result, json_path)
-
-    # Update in place
-    existing.invoice_type = invoice.invoice_type.value
-    existing.invoice_number = invoice.invoice_number
-    existing.invoice_series = invoice.invoice_series
-    existing.issuer_cif = invoice.issuer_cif
-    existing.issuer_name = invoice.issuer_name
-    existing.recipient_cif = invoice.recipient_cif
-    existing.recipient_name = invoice.recipient_name
-    existing.issue_date = str(invoice.issue_date) if invoice.issue_date else None
-    existing.total_amount = str(invoice.total_amount)
-    existing.currency = invoice.currency
+        return await create_extraction(db, document_id, result, json_path)
+    a = result.anchor
+    existing.invoice_number = a.invoice_number
+    existing.issuer_cif = a.issuer_cif
+    existing.issuer_name = a.issuer_name
+    existing.recipient_cif = a.recipient_cif
+    existing.recipient_name = a.recipient_name
+    existing.issue_date = a.issue_date
+    existing.total_amount = str(a.total_amount) if a.total_amount is not None else None
+    existing.currency = a.currency
     existing.status = _extraction_status(result)
-    existing.validation_errors = _json.dumps([asdict(i) for i in result.issues]) if result.issues else None
+    existing.validation_errors = (
+        _json.dumps([asdict(i) for i in result.issues]) if result.issues else None
+    )
     existing.json_path = json_path
     await db.commit()
     await db.refresh(existing)
@@ -173,15 +168,10 @@ async def find_duplicate(
     db: AsyncSession,
     issuer_cif: str,
     invoice_number: str,
-    invoice_series: str | None,
 ) -> Extraction | None:
     stmt = select(Extraction).where(
         Extraction.issuer_cif == issuer_cif,
         Extraction.invoice_number == invoice_number,
     )
-    if invoice_series is None:
-        stmt = stmt.where(Extraction.invoice_series.is_(None))
-    else:
-        stmt = stmt.where(Extraction.invoice_series == invoice_series)
     result = await db.execute(stmt)
     return result.scalars().first()
