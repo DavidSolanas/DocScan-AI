@@ -165,7 +165,7 @@ async def ocr_document_task(
                 )
                 if existing_jobs.scalar_one_or_none() is None:
                     extraction_job = await create_job(db, document_id=document_id, job_type="extraction")
-                    await _run_extraction(document_id, extraction_job.id, tables=merged_tables)
+                    await _run_extraction(document_id, extraction_job.id)
 
         except Exception as exc:
             logger.exception("OCR failed for document %s", document_id)

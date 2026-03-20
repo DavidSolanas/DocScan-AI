@@ -84,12 +84,12 @@ async def export_extraction(
         content = to_csv(result)
         return Response(
             content=content, media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={filename_base}.csv"},
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.csv"'},
         )
     content = to_markdown(result, doc.filename)
     return Response(
         content=content, media_type="text/markdown",
-        headers={"Content-Disposition": f"attachment; filename={filename_base}.md"},
+        headers={"Content-Disposition": f'attachment; filename="{filename_base}.md"'},
     )
 
 
@@ -138,7 +138,7 @@ def _decimal_default(obj: object) -> str:
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
-async def _run_extraction(document_id: str, job_id: str, tables: list | None = None) -> None:
+async def _run_extraction(document_id: str, job_id: str) -> None:
     async with AsyncSessionLocal() as db:
         try:
             await crud.update_job(db, job_id, status="running", started_at=datetime.now(UTC))
