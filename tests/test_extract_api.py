@@ -1,44 +1,38 @@
 # tests/test_extract_api.py
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import dataclasses
+import json
 import pytest
 from httpx import AsyncClient
 
-from backend.schemas.invoice import Invoice, InvoiceLine, InvoiceType
-from backend.services.invoice_validator import ValidationResult
+from backend.schemas.extraction import AnchorFields, ExtractionIssue, ExtractionResult
 
 
-def _make_invoice() -> Invoice:
-    line = InvoiceLine(
-        line_number=1,
-        description="Srv",
-        base_amount=Decimal("100.00"),
-        iva_rate=Decimal("21"),
-        iva_amount=Decimal("21.00"),
-        total_line=Decimal("121.00"),
+def _make_extraction_result() -> ExtractionResult:
+    return ExtractionResult(
+        anchor=AnchorFields(
+            invoice_number="F-001", issue_date="2026-03-01",
+            issuer_name="Acme SL", issuer_cif="A12345679",
+            recipient_name="Client SA", recipient_cif="12345678Z",
+            base_imponible=Decimal("100.00"), iva_rate=Decimal("21"),
+            iva_amount=Decimal("21.00"), total_amount=Decimal("121.00"),
+            currency="EUR",
+        ),
+        discovered={}, issues=[], requires_review=False,
+        llm_model="qwen3.5:9b", extraction_timestamp="2026-03-20T10:00:00Z",
     )
-    return Invoice(
-        invoice_type=InvoiceType.STANDARD,
-        invoice_number="F-001",
-        issue_date=date(2026, 3, 15),
-        issuer_name="Acme SL",
-        issuer_cif="A12345679",
-        issuer_address="Calle Mayor 1",
-        recipient_name="Client SA",
-        recipient_cif="12345678Z",
-        lines=[line],
-        tax_breakdown=[],
-        subtotal=Decimal("100.00"),
-        total_iva=Decimal("21.00"),
-        total_amount=Decimal("121.00"),
-        source_file="test.pdf",
-        extraction_confidence=0.9,
-    )
+
+
+def _result_to_json(result: ExtractionResult) -> str:
+    def _default(obj):
+        if isinstance(obj, Decimal): return str(obj)
+        raise TypeError
+    return json.dumps(dataclasses.asdict(result), default=_default, indent=2)
 
 
 @pytest.fixture
@@ -116,19 +110,16 @@ async def test_get_extraction_not_started(client: AsyncClient, sample_pdf: Path)
 async def test_get_extraction_after_trigger(client: AsyncClient, sample_pdf: Path, tmp_path: Path):
     doc_id = await _upload_pdf(client, sample_pdf)
 
-    # Write a fake JSON file for the invoice
-    invoice = _make_invoice()
+    result = _make_extraction_result()
     json_path = tmp_path / f"{doc_id}.json"
-    json_path.write_text(invoice.model_dump_json())
+    json_path.write_text(_result_to_json(result))
 
-    # Simulate a completed extraction in DB using the patched AsyncSessionLocal
-    # Import inside the test body so we get the already-patched module reference
     import backend.database.engine as engine_module
-    from backend.database.crud import create_extraction, create_job, update_job
+    from backend.database.crud import create_extraction, create_job
 
     async with engine_module.AsyncSessionLocal() as db:
-        job = await create_job(db, document_id=doc_id, job_type="extraction", status="completed")
-        await create_extraction(db, doc_id, invoice, ValidationResult(True, [], False), str(json_path))
+        await create_job(db, document_id=doc_id, job_type="extraction", status="completed")
+        await create_extraction(db, doc_id, result, str(json_path))
 
     resp = await client.get(f"/api/extract/{doc_id}")
     assert resp.status_code == 200
@@ -137,3 +128,52 @@ async def test_get_extraction_after_trigger(client: AsyncClient, sample_pdf: Pat
     assert data["extraction_status"] == "valid"
     assert data["invoice_json_available"] is True
     assert data["invoice"] is not None
+    assert data["invoice"]["anchor"]["invoice_number"] == "F-001"
+
+
+@pytest.mark.asyncio
+async def test_export_md_returns_markdown(client: AsyncClient, sample_pdf: Path, tmp_path: Path):
+    doc_id = await _upload_pdf(client, sample_pdf)
+    result = _make_extraction_result()
+    json_path = tmp_path / f"{doc_id}.json"
+    json_path.write_text(_result_to_json(result))
+
+    import backend.database.engine as engine_module
+    from backend.database.crud import create_extraction, create_job
+
+    async with engine_module.AsyncSessionLocal() as db:
+        await create_job(db, document_id=doc_id, job_type="extraction", status="completed")
+        await create_extraction(db, doc_id, result, str(json_path))
+
+    resp = await client.get(f"/api/extract/{doc_id}/export?format=md")
+    assert resp.status_code == 200
+    assert "F-001" in resp.text
+    assert resp.headers["content-type"].startswith("text/markdown")
+
+
+@pytest.mark.asyncio
+async def test_export_csv_returns_csv(client: AsyncClient, sample_pdf: Path, tmp_path: Path):
+    doc_id = await _upload_pdf(client, sample_pdf)
+    result = _make_extraction_result()
+    json_path = tmp_path / f"{doc_id}.json"
+    json_path.write_text(_result_to_json(result))
+
+    import backend.database.engine as engine_module
+    from backend.database.crud import create_extraction, create_job
+
+    async with engine_module.AsyncSessionLocal() as db:
+        await create_job(db, document_id=doc_id, job_type="extraction", status="completed")
+        await create_extraction(db, doc_id, result, str(json_path))
+
+    resp = await client.get(f"/api/extract/{doc_id}/export?format=csv")
+    assert resp.status_code == 200
+    assert "invoice_number" in resp.text
+    assert "F-001" in resp.text
+    assert resp.headers["content-type"].startswith("text/csv")
+
+
+@pytest.mark.asyncio
+async def test_export_404_when_no_extraction(client: AsyncClient, sample_pdf: Path):
+    doc_id = await _upload_pdf(client, sample_pdf)
+    resp = await client.get(f"/api/extract/{doc_id}/export?format=md")
+    assert resp.status_code == 404
