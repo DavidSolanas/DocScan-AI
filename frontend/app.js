@@ -67,20 +67,6 @@ const tabInvoice      = $("tab-invoice");
 const textTabContent  = $("text-tab-content");
 const ocrTabContent   = $("ocr-tab-content");
 const invoiceTabContent  = $("invoice-tab-content");
-const invoiceEmpty    = $("invoice-empty");
-const invoiceProcessing = $("invoice-processing");
-const invoiceData     = $("invoice-data");
-const manualReviewBanner = $("manual-review-banner");
-const manualReviewReasons = $("manual-review-reasons");
-const validationIssuesPanel = $("validation-issues-panel");
-const validationIssuesList = $("validation-issues-list");
-const irpfPanel       = $("irpf-panel");
-const irpfLabel       = $("irpf-label");
-const irpfAmountEl    = $("irpf-amount");
-const ivaBreakdownPanel = $("iva-breakdown-panel");
-const ivaTableBody    = $("iva-table-body");
-const invoiceTotalsPanel = $("invoice-totals-panel");
-const invoiceTotalsRows = $("invoice-totals-rows");
 const reviewQueueSection = $("review-queue-section");
 const reviewCount     = $("review-count");
 const reviewList      = $("review-list");
@@ -655,9 +641,11 @@ async function deleteDocument(docId, listItem) {
       ocrResults.hidden = true;
       runOcrBtn.hidden = true;
       // Reset Invoice panel
-      invoiceEmpty.hidden = false;
-      invoiceProcessing.hidden = true;
-      invoiceData.hidden = true;
+      document.getElementById('invoice-download-bar').style.display = 'none';
+      document.getElementById('extraction-not-started').style.display = 'none';
+      document.getElementById('invoice-empty').style.display = 'none';
+      document.getElementById('invoice-processing').style.display = 'none';
+      document.getElementById('invoice-panel').style.display = 'none';
       if (state.extractionPolling) {
         clearInterval(state.extractionPolling);
         state.extractionPolling = null;
@@ -744,6 +732,45 @@ async function uploadFile(file) {
 // ─── Refresh button ───────────────────────────────────────────────────────────
 refreshBtn.addEventListener("click", loadDocumentList);
 
+// ─── Invoice download handlers ────────────────────────────────────────────────
+document.getElementById('download-md-btn').addEventListener('click', async () => {
+  if (!state.activeDocId) return;
+  try {
+    const resp = await fetch(`/api/extract/${state.activeDocId}/export?format=md`);
+    if (!resp.ok) { showToast('No extraction available', 'warning'); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoice-${state.activeDocId}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    showToast(`Download failed: ${err.message}`, 'error');
+  }
+});
+
+document.getElementById('download-csv-btn').addEventListener('click', async () => {
+  if (!state.activeDocId) return;
+  try {
+    const resp = await fetch(`/api/extract/${state.activeDocId}/export?format=csv`);
+    if (!resp.ok) { showToast('No extraction available', 'warning'); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoice-${state.activeDocId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    showToast(`Download failed: ${err.message}`, 'error');
+  }
+});
+
+document.getElementById('run-extraction-btn').addEventListener('click', async () => {
+  if (state.activeDocId) await runExtraction(state.activeDocId);
+});
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function formatBytes(bytes) {
   if (bytes === 0) return "0 B";
@@ -761,11 +788,6 @@ function escHtml(str) {
 }
 
 // ─── Invoice panel ────────────────────────────────────────────────────────────
-function formatAmount(str) {
-  const n = parseFloat(str);
-  return isNaN(n) ? str : n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 async function loadInvoicePanel(docId) {
   // Clear any existing extraction polling
   if (state.extractionPolling) {
@@ -773,18 +795,22 @@ async function loadInvoicePanel(docId) {
     state.extractionPolling = null;
   }
 
-  invoiceEmpty.hidden = true;
-  invoiceProcessing.hidden = true;
-  invoiceData.hidden = true;
+  // Reset all states
+  document.getElementById('invoice-download-bar').style.display = 'none';
+  document.getElementById('extraction-not-started').style.display = 'none';
+  document.getElementById('invoice-empty').style.display = 'none';
+  document.getElementById('invoice-processing').style.display = 'none';
+  document.getElementById('invoice-panel').style.display = 'none';
+  document.getElementById('invoice-panel').innerHTML = '';
 
   try {
     const data = await apiJson(`/extract/${docId}`);
     const status = data.job_status;
 
-    if (status === "not_started" || status === "pending") {
-      invoiceEmpty.hidden = false;
-    } else if (status === "running") {
-      invoiceProcessing.hidden = false;
+    if (status === 'not_started') {
+      document.getElementById('extraction-not-started').style.display = 'block';
+    } else if (status === 'pending' || status === 'running') {
+      document.getElementById('invoice-processing').style.display = 'block';
       state.extractionPolling = setInterval(async () => {
         if (state.activeDocId !== docId) {
           clearInterval(state.extractionPolling);
@@ -793,98 +819,117 @@ async function loadInvoicePanel(docId) {
         }
         try {
           const d = await apiJson(`/extract/${docId}`);
-          if (d.job_status === "completed" || d.job_status === "failed") {
+          if (d.job_status === 'completed' || d.job_status === 'failed') {
             clearInterval(state.extractionPolling);
             state.extractionPolling = null;
             await loadInvoicePanel(docId);
           }
         } catch {}
       }, 2000);
-    } else if (status === "failed") {
-      invoiceEmpty.hidden = false;
-      invoiceEmpty.textContent = `Extraction failed. Run extraction again.`;
-    } else if (status === "completed" && data.invoice_json_available && data.invoice) {
-      renderInvoiceData(data.invoice, data.validation_issues ?? []);
+    } else if (status === 'failed') {
+      document.getElementById('invoice-empty').style.display = 'block';
+      document.getElementById('invoice-empty').innerHTML = `
+        <p>Extraction failed.</p>
+        <button id="retry-extraction-btn" class="btn btn-primary">Retry Extraction</button>
+      `;
+      document.getElementById('retry-extraction-btn').addEventListener('click', async () => {
+        await runExtraction(docId);
+      });
+    } else if (status === 'completed' && data.invoice_json_available && data.invoice) {
+      renderInvoiceData(data);
     } else {
-      invoiceEmpty.hidden = false;
+      document.getElementById('invoice-empty').style.display = 'block';
     }
   } catch {
-    invoiceEmpty.hidden = false;
+    document.getElementById('invoice-empty').style.display = 'block';
   }
 }
 
-function renderInvoiceData(invoice, validationIssues) {
-  invoiceData.hidden = false;
+async function runExtraction(docId) {
+  try {
+    await apiJson(`/extract/${docId}`, { method: 'POST' });
+    showToast('Extraction started', 'info');
+    await loadInvoicePanel(docId);
+  } catch (err) {
+    showToast(`Extraction failed to start: ${err.message}`, 'error');
+  }
+}
 
-  // Manual review banner
-  if (invoice.requires_manual_review) {
-    manualReviewBanner.hidden = false;
-    const reasons = (invoice.review_reasons ?? []).join(", ");
-    manualReviewReasons.textContent = reasons || "Manual verification required";
-  } else {
-    manualReviewBanner.hidden = true;
+function renderInvoiceData(data) {
+  const invoicePanel = document.getElementById('invoice-panel');
+  const invoice = data.invoice;
+  const anchor = invoice.anchor || {};
+  const discovered = invoice.discovered || {};
+  const allIssues = data.validation_issues || invoice.issues || [];
+
+  // Show download bar
+  document.getElementById('invoice-download-bar').style.display = 'block';
+
+  // Review banner
+  let html = '';
+  if (invoice.requires_review) {
+    html += `<div class="manual-review-banner"><strong>⚠️ This invoice requires manual review</strong></div>`;
   }
 
-  // Validation issues — errors first, then warnings
-  if (validationIssues && validationIssues.length > 0) {
-    validationIssuesPanel.hidden = false;
-    const sorted = [...validationIssues].sort((a, b) => {
-      const order = { error: 0, warning: 1 };
-      return (order[a.severity] ?? 2) - (order[b.severity] ?? 2);
-    });
-    validationIssuesList.innerHTML = sorted.map(issue =>
-      `<span class="validation-chip severity-${escHtml(issue.severity)}">${escHtml(issue.field)}: ${escHtml(issue.message)}</span>`
-    ).join("");
-  } else {
-    validationIssuesPanel.hidden = true;
+  // --- Critical Fields Card ---
+  html += `<div style="margin-bottom:12px"><strong>Critical Fields</strong><table style="width:100%;border-collapse:collapse;margin-top:6px">`;
+  const criticalFields = [
+    ['Invoice Number', anchor.invoice_number],
+    ['Date', anchor.issue_date],
+    ['Issuer', anchor.issuer_name],
+    ['Issuer CIF', anchor.issuer_cif],
+    ['Recipient', anchor.recipient_name],
+    ['Recipient CIF', anchor.recipient_cif],
+    ['Base Imponible', anchor.base_imponible ? `${anchor.base_imponible} ${anchor.currency || 'EUR'}` : null],
+    ['IVA Rate', anchor.iva_rate ? `${anchor.iva_rate}%` : null],
+    ['IVA Amount', anchor.iva_amount ? `${anchor.iva_amount} ${anchor.currency || 'EUR'}` : null],
+    ['IRPF Rate', anchor.irpf_rate ? `${anchor.irpf_rate}%` : null],
+    ['IRPF Amount', anchor.irpf_amount ? `-${anchor.irpf_amount} ${anchor.currency || 'EUR'}` : null],
+    ['Total', anchor.total_amount ? `<strong>${anchor.total_amount} ${anchor.currency || 'EUR'}</strong>` : null],
+  ];
+  for (const [label, value] of criticalFields) {
+    const display = value != null ? value : '<span style="color:var(--text-muted,#888)">—</span>';
+    html += `<tr><td style="padding:3px 8px 3px 0;color:var(--text-muted,#888);width:40%">${escHtml(label)}</td><td style="padding:3px 0">${display}</td></tr>`;
+  }
+  html += `</table></div>`;
+
+  // --- Additional Details ---
+  if (Object.keys(discovered).length > 0) {
+    html += `<details style="margin-bottom:12px"><summary><strong>Additional Details</strong></summary><div style="margin-top:6px">`;
+    html += renderDict(discovered);
+    html += `</div></details>`;
   }
 
-  // IRPF
-  if (invoice.irpf_amount != null) {
-    irpfPanel.hidden = false;
-    const rateStr = invoice.irpf_rate != null ? ` ${formatAmount(String(invoice.irpf_rate))}%` : "";
-    irpfLabel.textContent = `Retención IRPF${rateStr}`;
-    irpfAmountEl.textContent = `−€${formatAmount(String(invoice.irpf_amount))}`;
-  } else {
-    irpfPanel.hidden = true;
+  // --- Issues Panel ---
+  if (allIssues.length > 0) {
+    html += `<div style="margin-bottom:12px"><strong>Issues & Observations</strong><ul style="list-style:none;padding:0;margin:6px 0 0">`;
+    for (const issue of allIssues) {
+      const icon = issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️';
+      const fieldNote = issue.field ? ` <code>${escHtml(issue.field)}</code>:` : '';
+      html += `<li style="padding:4px 0;border-bottom:1px solid var(--border,#eee)">${icon}${fieldNote} ${escHtml(issue.message)}</li>`;
+    }
+    html += `</ul></div>`;
   }
 
-  // IVA breakdown
-  const breakdown = invoice.tax_breakdown ?? [];
-  if (breakdown.length > 0) {
-    ivaBreakdownPanel.hidden = false;
-    ivaTableBody.innerHTML = breakdown.map(row => `
-      <tr>
-        <td>${formatAmount(String(row.iva_rate ?? 0))}%</td>
-        <td>${row.base_amount != null ? "€" + formatAmount(String(row.base_amount)) : "—"}</td>
-        <td>${row.iva_amount != null ? "€" + formatAmount(String(row.iva_amount)) : "—"}</td>
-        <td>${row.recargo_rate != null ? formatAmount(String(row.recargo_rate)) + "%" : "—"}</td>
-        <td>${row.recargo_amount != null ? "€" + formatAmount(String(row.recargo_amount)) : "—"}</td>
-      </tr>
-    `).join("");
-  } else {
-    ivaBreakdownPanel.hidden = true;
-  }
+  invoicePanel.innerHTML = html;
+  invoicePanel.style.display = 'block';
+}
 
-  // Totals
-  invoiceTotalsPanel.hidden = false;
-  const rows = [];
-  if (invoice.subtotal != null)
-    rows.push({ label: "Subtotal", value: `€${formatAmount(String(invoice.subtotal))}`, grand: false });
-  if (invoice.total_iva != null)
-    rows.push({ label: "Total IVA", value: `€${formatAmount(String(invoice.total_iva))}`, grand: false });
-  if (invoice.total_recargo != null)
-    rows.push({ label: "Total Recargo", value: `€${formatAmount(String(invoice.total_recargo))}`, grand: false });
-  if (invoice.irpf_amount != null) {
-    const rateStr = invoice.irpf_rate != null ? ` ${formatAmount(String(invoice.irpf_rate))}%` : "";
-    rows.push({ label: `IRPF${rateStr}`, value: `−€${formatAmount(String(invoice.irpf_amount))}`, grand: false });
+function renderDict(obj, depth = 0) {
+  if (typeof obj !== 'object' || obj === null) return escHtml(String(obj));
+  let html = '<dl style="margin:0;padding-left:' + (depth * 12) + 'px">';
+  for (const [k, v] of Object.entries(obj)) {
+    html += `<dt style="font-weight:600;color:var(--text-muted,#888);font-size:0.85em">${escHtml(k)}</dt><dd style="margin:0 0 4px 12px">`;
+    if (Array.isArray(v)) {
+      html += v.map(item => typeof item === 'object' ? renderDict(item, depth + 1) : escHtml(String(item))).join(', ');
+    } else if (typeof v === 'object' && v !== null) {
+      html += renderDict(v, depth + 1);
+    } else {
+      html += escHtml(String(v ?? ''));
+    }
+    html += '</dd>';
   }
-  if (invoice.total_amount != null)
-    rows.push({ label: "Total Factura", value: `€${formatAmount(String(invoice.total_amount))}`, grand: true });
-
-  invoiceTotalsRows.innerHTML = rows.map(r =>
-    `<div class="totals-row${r.grand ? " grand-total" : ""}"><span>${escHtml(r.label)}</span><span>${escHtml(r.value)}</span></div>`
-  ).join("");
+  return html + '</dl>';
 }
 
 // ─── Review queue ─────────────────────────────────────────────────────────────
@@ -893,7 +938,7 @@ async function loadReviewQueue(docs) {
   for (const doc of docs.slice(0, 50)) {
     try {
       const data = await apiJson(`/extract/${doc.id}`);
-      if (data.invoice_json_available && data.invoice && data.invoice.requires_manual_review) {
+      if (data.invoice_json_available && data.invoice && data.invoice.requires_review) {
         needsReview.push(doc);
       }
     } catch {}

@@ -168,46 +168,24 @@
 
         <!-- Invoice tab content -->
         <div id="invoice-tab-content" hidden>
-          <div id="invoice-empty" class="text-empty">Run extraction to see invoice data.</div>
-          <div id="invoice-processing" class="text-processing" hidden>
+          <!-- Download bar — shown only when extraction is complete -->
+          <div id="invoice-download-bar" style="display:none; margin-bottom: 12px; padding: 8px 12px;">
+            <button id="download-md-btn" class="btn btn-secondary btn-sm">↓ Download Markdown</button>
+            <button id="download-csv-btn" class="btn btn-secondary btn-sm" style="margin-left: 8px;">↓ Download CSV</button>
+          </div>
+
+          <!-- Not started state -->
+          <div id="extraction-not-started" style="display:none;" class="text-empty">
+            <p>No extraction has been run for this document.</p>
+            <button id="run-extraction-btn" class="btn btn-primary">Run Extraction</button>
+          </div>
+
+          <div id="invoice-empty" class="text-empty" style="display:none;">Run extraction to see invoice data.</div>
+          <div id="invoice-processing" class="text-processing" style="display:none;">
             <div class="spinner"></div>
             <p>Extracting invoice data…</p>
           </div>
-          <div id="invoice-data" hidden>
-            <!-- Manual review banner -->
-            <div id="manual-review-banner" class="manual-review-banner" hidden>
-              <strong>Revisión manual requerida</strong>
-              <p id="manual-review-reasons"></p>
-            </div>
-            <!-- Validation issues -->
-            <div id="validation-issues-panel" hidden>
-              <div class="invoice-section-header">Validation Issues</div>
-              <div id="validation-issues-list"></div>
-            </div>
-            <!-- IRPF row -->
-            <div id="irpf-panel" hidden>
-              <div class="irpf-row">
-                <span id="irpf-label">Retención IRPF</span>
-                <span id="irpf-amount" class="irpf-amount"></span>
-              </div>
-            </div>
-            <!-- IVA breakdown table -->
-            <div id="iva-breakdown-panel" hidden>
-              <div class="invoice-section-header">Desglose IVA</div>
-              <table class="iva-table">
-                <thead><tr>
-                  <th>Tipo IVA</th><th>Base Imponible</th><th>Cuota IVA</th>
-                  <th>Recargo</th><th>Cuota Recargo</th>
-                </tr></thead>
-                <tbody id="iva-table-body"></tbody>
-              </table>
-            </div>
-            <!-- Totals -->
-            <div id="invoice-totals-panel" hidden>
-              <div class="invoice-section-header">Totales</div>
-              <div id="invoice-totals-rows"></div>
-            </div>
-          </div>
+          <div id="invoice-panel" style="display:none;"></div>
         </div>
 
         <!-- OCR tab content -->
