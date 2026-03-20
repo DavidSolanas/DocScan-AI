@@ -55,7 +55,7 @@ def to_markdown(result: ExtractionResult, filename: str) -> str:
             lines.append(f"- {icon}{field_note} {issue.message}")
         lines.append("")
 
-    lines.append(f"*Extraído con {result.llm_model} el {result.extraction_timestamp}*")
+    lines.append(f"*Fuente: {filename} — Extraído con {result.llm_model} el {result.extraction_timestamp}*")
     return "\n".join(lines)
 
 
@@ -75,7 +75,7 @@ def to_csv(result: ExtractionResult) -> str:
         "invoice_number", "issue_date", "issuer_name", "issuer_cif",
         "recipient_name", "recipient_cif", "base_imponible", "iva_rate",
         "iva_amount", "irpf_rate", "irpf_amount", "total_amount", "currency",
-        "issues_count", "requires_review",
+        "error_count", "requires_review",
     ]
 
     def _s(v: object) -> str:
@@ -89,7 +89,7 @@ def to_csv(result: ExtractionResult) -> str:
         "iva_amount": _s(a.iva_amount), "irpf_rate": _s(a.irpf_rate),
         "irpf_amount": _s(a.irpf_amount), "total_amount": _s(a.total_amount),
         "currency": a.currency,
-        "issues_count": str(sum(1 for i in result.issues if i.severity == "error")),
+        "error_count": str(sum(1 for i in result.issues if i.severity == "error")),
         "requires_review": str(result.requires_review).lower(),
     }
     out = io.StringIO()

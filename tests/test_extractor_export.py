@@ -1,7 +1,6 @@
 from __future__ import annotations
 import csv, io
 from decimal import Decimal
-import pytest
 from backend.schemas.extraction import AnchorFields, ExtractionIssue, ExtractionResult
 from backend.services.extractor_export import to_csv, to_markdown
 
