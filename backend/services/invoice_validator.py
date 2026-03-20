@@ -264,6 +264,111 @@ def validate_mandatory_fields(invoice: Invoice) -> list[ValidationIssue]:
     return issues
 
 
+_VALID_RECARGO_PAIRS: dict[Decimal, Decimal] = {
+    Decimal("21"): Decimal("5.2"),
+    Decimal("10"): Decimal("1.4"),
+    Decimal("4"): Decimal("0.5"),
+    Decimal("0"): Decimal("0"),
+}
+
+
+def validate_irpf_amount(invoice: Invoice) -> list[ValidationIssue]:
+    """Verify that irpf_amount derives from irpf_rate × subtotal."""
+    if invoice.irpf_rate is None and invoice.irpf_amount is None:
+        return []
+    if invoice.irpf_rate is not None and invoice.irpf_amount is None:
+        return [ValidationIssue(field="irpf_amount", message="irpf_rate present but irpf_amount missing", severity="warning")]
+    if invoice.irpf_amount is not None and invoice.irpf_rate is None:
+        return [ValidationIssue(field="irpf_rate", message="irpf_amount present but irpf_rate missing", severity="warning")]
+    expected = _round2(invoice.subtotal * invoice.irpf_rate / 100)
+    delta = abs(invoice.irpf_amount - expected)
+    if delta >= _EPSILON:
+        return [ValidationIssue(
+            field="irpf_amount",
+            message=f"irpf_amount mismatch: expected {expected}, got {invoice.irpf_amount}, delta={delta}",
+            severity="error",
+        )]
+    return []
+
+
+def validate_total_recargo(invoice: Invoice) -> list[ValidationIssue]:
+    """Verify that total_recargo equals the sum of per-line recargo amounts."""
+    amounts = [
+        line.recargo_equivalencia_amount
+        for line in invoice.lines
+        if line.recargo_equivalencia_amount is not None
+    ]
+    if not amounts:
+        return []
+    expected = _round2(sum(amounts, Decimal("0")))
+    if invoice.total_recargo is None:
+        return [ValidationIssue(
+            field="total_recargo",
+            message="total_recargo missing but lines have recargo",
+            severity="error",
+        )]
+    delta = abs(invoice.total_recargo - expected)
+    if delta >= _EPSILON:
+        return [ValidationIssue(
+            field="total_recargo",
+            message=f"total_recargo mismatch: expected {expected}, got {invoice.total_recargo}, delta={delta}",
+            severity="error",
+        )]
+    return []
+
+
+def validate_recargo_iva_pairs(invoice: Invoice) -> list[ValidationIssue]:
+    """Verify that recargo rates match their corresponding IVA rates."""
+    issues: list[ValidationIssue] = []
+    for line in invoice.lines:
+        if line.recargo_equivalencia_rate is None:
+            continue
+        field = f"lines[{line.line_number}].recargo_equivalencia_rate"
+        if line.iva_rate == Decimal("0") and line.recargo_equivalencia_rate > Decimal("0"):
+            issues.append(ValidationIssue(
+                field=field,
+                message="zero-rate IVA cannot have non-zero recargo",
+                severity="error",
+            ))
+            continue
+        expected_recargo = _VALID_RECARGO_PAIRS.get(line.iva_rate)
+        if expected_recargo is None:
+            issues.append(ValidationIssue(
+                field=field,
+                message=f"unknown IVA rate {line.iva_rate}% for recargo pairing",
+                severity="warning",
+            ))
+        elif line.recargo_equivalencia_rate != expected_recargo:
+            issues.append(ValidationIssue(
+                field=field,
+                message=(
+                    f"recargo rate {line.recargo_equivalencia_rate}% does not match "
+                    f"IVA rate {line.iva_rate}%; expected {expected_recargo}%"
+                ),
+                severity="error",
+            ))
+    return issues
+
+
+def validate_irpf_recargo_exclusivity(invoice: Invoice) -> list[ValidationIssue]:
+    """Warn when IRPF and recargo de equivalencia appear together (mutually exclusive)."""
+    has_irpf = invoice.irpf_amount is not None and invoice.irpf_amount > Decimal("0")
+    has_recargo = any(
+        line.recargo_equivalencia_amount is not None and line.recargo_equivalencia_amount > Decimal("0")
+        for line in invoice.lines
+    )
+    if has_irpf and has_recargo:
+        return [ValidationIssue(
+            field="irpf_amount",
+            message=(
+                "IRPF retention and recargo de equivalencia appear together; "
+                "retailers subject to recargo are not subject to IRPF — verify"
+            ),
+            severity="warning",
+        )]
+    return []
+
+
 def validate_invoice(invoice: Invoice) -> ValidationResult:
     """Run all validation checks and return aggregate result."""
     issues: list[ValidationIssue] = []
@@ -281,6 +386,10 @@ def validate_invoice(invoice: Invoice) -> ValidationResult:
 
     issues.extend(validate_totals(invoice))
     issues.extend(validate_mandatory_fields(invoice))
+    issues.extend(validate_irpf_amount(invoice))
+    issues.extend(validate_total_recargo(invoice))
+    issues.extend(validate_recargo_iva_pairs(invoice))
+    issues.extend(validate_irpf_recargo_exclusivity(invoice))
 
     errors = [i for i in issues if i.severity == "error"]
     critical_fields = {"invoice_number", "issuer_cif", "recipient_cif", "total_amount", "issue_date"}

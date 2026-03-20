@@ -60,13 +60,49 @@ async def extract_headers(text: str, doc_type: InvoiceType, llm: LLMService) -> 
     return await llm.complete_json(prompt, system=_EXTRACTOR_SYSTEM)
 
 
-async def extract_line_items(text: str, doc_type: InvoiceType, llm: LLMService) -> list[dict]:
-    prompt = (
-        text
-        + "\n\nExtract all line items as a JSON array. Each item must have: "
-        "line_number, description, quantity, unit, unit_price, discount_pct, "
-        "base_amount, iva_rate, iva_amount, total_line. Use null for missing numeric fields."
-    )
+def table_to_line_items_context(tables: list) -> str:
+    """Format a list of ExtractedTable objects as a structured text hint for the LLM.
+
+    Uses a plain list type to avoid a circular import at module level.
+    """
+    parts: list[str] = []
+    for table in tables[:3]:
+        matrix = table.to_matrix()
+        if not matrix:
+            continue
+        header = f"Table (page {table.page_number}, method {table.extraction_method}, {table.num_rows}×{table.num_cols}):"
+        rows = matrix[:50]
+        row_lines = ["  | " + " | ".join(row) + " |" for row in rows]
+        parts.append(header + "\n" + "\n".join(row_lines))
+    return "\n\n".join(parts)
+
+
+async def extract_line_items(
+    text: str,
+    doc_type: InvoiceType,
+    llm: LLMService,
+    tables: list | None = None,
+) -> list[dict]:
+    if tables:
+        structured_hint = table_to_line_items_context(tables)
+        prompt = (
+            "STRUCTURED TABLE DATA (from direct table extraction — prefer this for numbers):\n"
+            + structured_hint
+            + "\n\nRAW OCR TEXT (for context and descriptions):\n"
+            + text[:3000]
+            + "\n\nExtract all invoice line items as a JSON array. Use the structured table data for numeric "
+            "values (quantity, unit_price, base_amount, iva_rate, iva_amount, total_line). Use the raw "
+            "text for descriptions and notes. Each item must have: line_number, description, quantity, "
+            "unit, unit_price, discount_pct, base_amount, iva_rate, iva_amount, total_line. "
+            "Use null for missing numeric fields."
+        )
+    else:
+        prompt = (
+            text
+            + "\n\nExtract all line items as a JSON array. Each item must have: "
+            "line_number, description, quantity, unit, unit_price, discount_pct, "
+            "base_amount, iva_rate, iva_amount, total_line. Use null for missing numeric fields."
+        )
     raw = await llm.complete_json(prompt, system=_EXTRACTOR_SYSTEM)
     if isinstance(raw, list):
         return raw
@@ -209,6 +245,7 @@ async def extract_invoice(
     text: str,
     source_file: str,
     llm: LLMService,
+    tables: list | None = None,
 ) -> tuple[Invoice, ValidationResult]:
     """Run 5-pass extraction. Always returns a (partial) Invoice — never raises."""
     review_reasons: list[str] = []
@@ -228,7 +265,7 @@ async def extract_invoice(
         review_reasons.append(f"Pass 2 (headers) failed: {exc}")
 
     try:
-        lines_raw = await extract_line_items(text, invoice_type, llm)
+        lines_raw = await extract_line_items(text, invoice_type, llm, tables=tables)
     except LLMError as exc:
         review_reasons.append(f"Pass 3 (line items) failed: {exc}")
         lines_raw = []

@@ -229,3 +229,99 @@ async def extract_tables_from_image_async(
 ) -> list[ExtractedTable]:
     """Async wrapper for image table extraction."""
     return await asyncio.to_thread(extract_tables_from_image, image, page_number)
+
+
+def _is_numeric_cell(text: str) -> bool:
+    """Return True if the cell text looks like a number or price."""
+    t = text.strip()
+    if not t:
+        return False
+    try:
+        float(t.replace(",", "."))
+        return True
+    except ValueError:
+        pass
+    # Price pattern: digits with optional thousands/decimal separators
+    import re
+    return bool(re.match(r"^[\d][\d.,\s]*$", t))
+
+
+def merge_tables_across_pages(
+    tables_by_page: dict[int, list[ExtractedTable]],
+) -> list[ExtractedTable]:
+    """Merge tables that span multiple pages.
+
+    Algorithm:
+    1. For each page N, check if the last table on page N can be merged with the
+       first table on page N+1 (column count must match, continuation heuristic).
+    2. Continuation heuristic: page N+1 first table has ≥2 rows AND its first row
+       contains at least one numeric-looking cell. If the first row is ALL non-numeric
+       strings, treat it as a new header row and do NOT merge.
+    3. Repeat until stable to handle 3+ page tables.
+    4. Return a flat list of all tables (merged multi-page + standalone), preserving
+       page_number from the first contributing page.
+    """
+    if not tables_by_page:
+        return []
+
+    # Work on mutable copies of each page's list
+    pages_work: dict[int, list[ExtractedTable]] = {
+        p: list(tbls) for p, tbls in tables_by_page.items()
+    }
+    sorted_pages = sorted(pages_work.keys())
+
+    changed = True
+    while changed:
+        changed = False
+        for idx, page_n in enumerate(sorted_pages[:-1]):
+            base_list = pages_work[page_n]
+            if not base_list:
+                continue
+
+            # Find the next non-empty page after page_n
+            next_page = None
+            for p in sorted_pages[idx + 1:]:
+                if pages_work[p]:
+                    next_page = p
+                    break
+            if next_page is None:
+                continue
+
+            cont_list = pages_work[next_page]
+            base = base_list[-1]
+            cont = cont_list[0]
+
+            # Column count must match
+            if base.num_cols != cont.num_cols or cont.num_rows < 2:
+                continue
+
+            # Continuation heuristic: first row must have at least one numeric cell
+            first_row_cells = [c for c in cont.cells if c.row == 0]
+            if not first_row_cells:
+                continue
+            if not any(_is_numeric_cell(c.text) for c in first_row_cells):
+                continue  # All-string first row → new header, do not merge
+
+            # Merge: offset continuation cells by base.num_rows
+            offset = base.num_rows
+            for cell in cont.cells:
+                cell.row += offset
+            base.cells.extend(cont.cells)
+            base.num_rows += cont.num_rows
+            base.extraction_method = base.extraction_method + "+merged"
+
+            cont_list.pop(0)
+            changed = True
+
+    # Flatten all pages' tables into a single list
+    result: list[ExtractedTable] = []
+    for page_n in sorted_pages:
+        result.extend(pages_work[page_n])
+    return result
+
+
+async def merge_tables_across_pages_async(
+    tables_by_page: dict[int, list[ExtractedTable]],
+) -> list[ExtractedTable]:
+    """Async wrapper for merge_tables_across_pages."""
+    return await asyncio.to_thread(merge_tables_across_pages, tables_by_page)

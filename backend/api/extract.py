@@ -99,7 +99,7 @@ async def get_extraction_status(
     )
 
 
-async def _run_extraction(document_id: str, job_id: str) -> None:
+async def _run_extraction(document_id: str, job_id: str, tables: list | None = None) -> None:
     async with AsyncSessionLocal() as db:
         try:
             await crud.update_job(db, job_id, status="running", started_at=datetime.now(UTC))
@@ -113,7 +113,7 @@ async def _run_extraction(document_id: str, job_id: str) -> None:
             from backend.services.invoice_validator import ValidationIssue
 
             llm = get_llm_service()
-            invoice, result = await extract_invoice(doc.text_content, doc.filename, llm)
+            invoice, result = await extract_invoice(doc.text_content, doc.filename, llm, tables=tables)
 
             # Check for duplicates (skip if fields are sentinel values)
             if invoice.issuer_cif != _SENTINEL and invoice.invoice_number != _SENTINEL:

@@ -20,6 +20,11 @@ from backend.schemas.jobs import JobResponse
 from backend.schemas.ocr import OCRPageSchema, OCRResultResponse, OCRTriggerRequest
 from backend.services.ocr_engine import build_ocr_result, ocr_page_routed
 from backend.services.preprocessing import preprocess_image
+from backend.services.table_extractor import (
+    extract_tables_from_image,
+    extract_tables_from_pdf,
+    merge_tables_across_pages,
+)
 from backend.utils.image_utils import load_image, pdf_page_count, pdf_page_to_image
 
 logger = logging.getLogger(__name__)
@@ -54,6 +59,8 @@ async def ocr_document_task(
             page_results = []
             engine_per_page: list[str] = []
 
+            tables_by_page: dict[int, list] = {}
+
             if ext == ".pdf":
                 import asyncio
 
@@ -69,6 +76,12 @@ async def ocr_document_task(
                     page_results.append(page_result)
                     engine_per_page.append(engine_used.value)
                     del image
+                    if settings.TABLE_EXTRACTION_ENABLED:
+                        page_tables = await asyncio.to_thread(
+                            extract_tables_from_pdf, file_path, i + 1
+                        )
+                        if page_tables:
+                            tables_by_page[i + 1] = page_tables
                     await update_job(
                         db, job_id, progress=(i + 1) / total_pages
                     )
@@ -84,10 +97,20 @@ async def ocr_document_task(
                 )
                 page_results.append(page_result)
                 engine_per_page.append(engine_used.value)
+                if settings.TABLE_EXTRACTION_ENABLED:
+                    page_tables = await asyncio.to_thread(
+                        extract_tables_from_image, image, 1
+                    )
+                    if page_tables:
+                        tables_by_page[1] = page_tables
                 del image
                 await update_job(db, job_id, progress=1.0)
             else:
                 raise ValueError(f"Unsupported file format for OCR: {ext}")
+
+            merged_tables: list = []
+            if tables_by_page:
+                merged_tables = merge_tables_across_pages(tables_by_page)
 
             result = build_ocr_result(page_results)
 
@@ -142,7 +165,7 @@ async def ocr_document_task(
                 )
                 if existing_jobs.scalar_one_or_none() is None:
                     extraction_job = await create_job(db, document_id=document_id, job_type="extraction")
-                    await _run_extraction(document_id, extraction_job.id)
+                    await _run_extraction(document_id, extraction_job.id, tables=merged_tables)
 
         except Exception as exc:
             logger.exception("OCR failed for document %s", document_id)

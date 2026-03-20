@@ -662,5 +662,36 @@ html, body {
   overflow-y: auto;
 }
 
+/* ─── Invoice panel ──────────────────────────────────────────────────────── */
+.invoice-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 12px 0 6px;
+}
+
+.iva-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.iva-table th, .iva-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.iva-table th { color: var(--text-muted); font-weight: 600; text-align: right; }
+.iva-table th:first-child, .iva-table td:first-child { text-align: left; }
+.iva-table td { text-align: right; }
+
+.irpf-row { display: flex; justify-content: space-between; padding: 8px 0; }
+.irpf-amount { color: var(--red); font-weight: 600; }
+
+.totals-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+.totals-row.grand-total { font-weight: 700; font-size: 15px; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 4px; }
+
+.validation-chip { display: inline-block; border-radius: var(--radius-sm); padding: 2px 7px; font-size: 11px; margin: 2px; }
+.severity-error { background: rgba(243,139,168,0.15); color: var(--red); }
+.severity-warning { background: rgba(249,226,175,0.15); color: var(--yellow); }
+
+.review-badge { background: rgba(249,226,175,0.2); color: var(--yellow); border-radius: 9px; padding: 1px 6px; font-size: 11px; }
+
+.manual-review-banner { background: rgba(243,139,168,0.1); border: 1px solid rgba(243,139,168,0.3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; }
+.manual-review-banner p { color: var(--red); font-size: 12px; margin-top: 4px; }
+
 /* ─── Misc ───────────────────────────────────────────────────────────────── */
 [hidden] { display: none !important; }

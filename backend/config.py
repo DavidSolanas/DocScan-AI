@@ -57,9 +57,10 @@ class Settings(BaseSettings):
     GLM_OCR_MODEL: str = "glm-ocr"
     LAYOUT_DETECTION_ENABLED: bool = True
     OLLAMA_HOST: str = "http://localhost:11434"
-    OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b"
+    OLLAMA_DEFAULT_MODEL: str = "qwen3.5:9b"
     OLLAMA_TIMEOUT: int = 120        # seconds per Ollama call
     LLM_MAX_RETRIES: int = 2
+    TABLE_EXTRACTION_ENABLED: bool = True
 
     model_config = {"env_prefix": "DOCSCAN_"}
 
