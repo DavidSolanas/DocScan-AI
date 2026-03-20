@@ -1,3 +1,4 @@
+# backend/schemas/extraction.py
 from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
@@ -59,7 +60,13 @@ class ExtractionResult:
             total_amount=_dec(anchor_raw.get("total_amount")),
             currency=anchor_raw.get("currency") or "EUR",
         )
-        issues = [ExtractionIssue(**i) for i in (d.get("issues") or [])]
+        raw_issues = d.get("issues") or []
+        issues = []
+        for raw_i in raw_issues:
+            try:
+                issues.append(ExtractionIssue(**raw_i))
+            except (TypeError, KeyError) as exc:
+                raise ValueError(f"Malformed issue entry in ExtractionResult: {raw_i!r}") from exc
         return cls(
             anchor=anchor,
             discovered=d.get("discovered") or {},

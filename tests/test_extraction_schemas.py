@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import asdict
 from decimal import Decimal
-import pytest
 from backend.schemas.extraction import AnchorFields, ExtractionIssue, ExtractionResult
 
 
