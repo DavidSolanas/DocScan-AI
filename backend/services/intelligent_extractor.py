@@ -77,7 +77,7 @@ class IntelligentExtractor:
         if truncated:
             issues.append(ExtractionIssue(
                 field=None,
-                message=f"OCR text truncated to {MAX_TEXT_CHARS:,} chars — later pages may be missing",
+                message=f"OCR text for '{filename}' truncated to {MAX_TEXT_CHARS:,} chars — later pages may be missing",
                 severity="warning",
                 source="validator",
             ))
@@ -114,7 +114,7 @@ class IntelligentExtractor:
                 return None
 
         def _str(v: object) -> str | None:
-            return str(v).strip() or None if v else None
+            return str(v).strip() or None if v is not None else None
 
         return AnchorFields(
             issuer_name=_str(raw.get("issuer_name")),
