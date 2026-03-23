@@ -48,7 +48,11 @@ def apply_corrections_to_dict(raw: dict, corrections: dict[str, Any]) -> dict:
         if field_path == "lines":
             if "discovered" not in result:
                 result["discovered"] = {}
-            result["discovered"]["line_items"] = json.loads(correction.new_value)
+            try:
+                result["discovered"]["line_items"] = json.loads(correction.new_value)
+            except (json.JSONDecodeError, ValueError):
+                # Malformed JSON in correction — skip silently (preserve existing value)
+                pass
         else:
             _set_nested(result, field_path, correction.new_value)
     return result
@@ -62,8 +66,11 @@ async def get_corrected_extraction_result(db, extraction: Extraction):
     """
     from backend.schemas.extraction import ExtractionResult
 
-    with open(extraction.json_path) as f:
-        raw = json.load(f)
+    try:
+        with open(extraction.json_path) as f:
+            raw = json.load(f)
+    except (FileNotFoundError, OSError) as exc:
+        raise ValueError(f"Extraction JSON file not found: {extraction.json_path}") from exc
 
     corrections = await get_latest_corrections(db, extraction.id)
     corrected = apply_corrections_to_dict(raw, corrections)

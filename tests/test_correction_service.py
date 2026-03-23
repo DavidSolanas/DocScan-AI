@@ -154,6 +154,29 @@ def test_apply_corrections_lines_field():
 
 
 # ---------------------------------------------------------------------------
+# 6b. test_apply_corrections_lines_field_invalid_json
+# ---------------------------------------------------------------------------
+
+
+def test_apply_corrections_lines_field_invalid_json():
+    raw = {
+        "anchor": {},
+        "discovered": {"line_items": [{"description": "Existing", "total": "5.00"}]},
+        "issues": [],
+        "requires_review": False,
+        "llm_model": "test",
+        "extraction_timestamp": "2026-01-01T00:00:00Z",
+    }
+    stub = _make_correction_stub("not valid json")
+    corrections = {"lines": stub}
+
+    result = apply_corrections_to_dict(raw, corrections)
+
+    # Must not raise; existing line_items must be preserved
+    assert result["discovered"]["line_items"] == [{"description": "Existing", "total": "5.00"}]
+
+
+# ---------------------------------------------------------------------------
 # 7. test_apply_corrections_no_mutations
 # ---------------------------------------------------------------------------
 
