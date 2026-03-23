@@ -201,7 +201,11 @@ async def get_session(db: AsyncSession, session_id: str) -> ChatSession | None:
 
 
 async def list_sessions(db: AsyncSession, document_id: str | None = None) -> list[ChatSession]:
-    stmt = select(ChatSession).order_by(ChatSession.created_at.desc())
+    stmt = (
+        select(ChatSession)
+        .options(selectinload(ChatSession.messages))
+        .order_by(ChatSession.created_at.desc())
+    )
     if document_id is not None:
         stmt = stmt.where(ChatSession.document_id == document_id)
     result = await db.execute(stmt)
