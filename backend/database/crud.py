@@ -4,6 +4,7 @@ from dataclasses import asdict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.database.models import ChatMessage, ChatSession, Document, Extraction, Job
 from backend.schemas.extraction import ExtractionResult
@@ -118,7 +119,9 @@ async def create_extraction(
         total_amount=str(a.total_amount) if a.total_amount is not None else None,
         currency=a.currency,
         status=_extraction_status(result),
-        validation_errors=_json.dumps([asdict(i) for i in result.issues]) if result.issues else None,
+        validation_errors=(
+            _json.dumps([asdict(i) for i in result.issues]) if result.issues else None
+        ),
         json_path=json_path,
     )
     db.add(extraction)
@@ -189,7 +192,6 @@ async def create_session(db: AsyncSession, **kwargs) -> ChatSession:
 
 
 async def get_session(db: AsyncSession, session_id: str) -> ChatSession | None:
-    from sqlalchemy.orm import selectinload
     result = await db.execute(
         select(ChatSession)
         .options(selectinload(ChatSession.messages))

@@ -85,7 +85,7 @@ class Extraction(Base):
     issue_date: Mapped[str | None] = mapped_column(String, nullable=True)    # ISO 8601
     total_amount: Mapped[str | None] = mapped_column(String, nullable=True)  # string, never float
     currency: Mapped[str | None] = mapped_column(String, nullable=True)
-    status: Mapped[str] = mapped_column(String, default="valid")             # valid|invalid|needs_review
+    status: Mapped[str] = mapped_column(String, default="valid")  # valid|invalid|needs_review
     validation_errors: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
     json_path: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -100,22 +100,42 @@ class Extraction(Base):
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
-    document_id: Mapped[str | None] = mapped_column(String, ForeignKey("documents.id"), nullable=True)
-    document_id_b: Mapped[str | None] = mapped_column(String, ForeignKey("documents.id"), nullable=True)
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: uuid.uuid4().hex
+    )
+    document_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("documents.id"), nullable=True
+    )
+    # Any relationship using document_id / document_id_b must specify
+    # foreign_keys=[...] explicitly to avoid SQLAlchemy AmbiguousForeignKeysError.
+    document_id_b: Mapped[str | None] = mapped_column(
+        String, ForeignKey("documents.id"), nullable=True
+    )
     mode: Mapped[str] = mapped_column(String, nullable=False, default="single")
     title: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
-    messages: Mapped[list["ChatMessage"]] = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+    messages: Mapped[list["ChatMessage"]] = relationship(
+        "ChatMessage", back_populates="session", cascade="all, delete-orphan"
+    )
 
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
-    session_id: Mapped[str] = mapped_column(String, ForeignKey("chat_sessions.id"), nullable=False)
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: uuid.uuid4().hex
+    )
+    session_id: Mapped[str] = mapped_column(
+        String, ForeignKey("chat_sessions.id"), nullable=False
+    )
     role: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
     session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
