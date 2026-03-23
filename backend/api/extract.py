@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -61,6 +61,7 @@ async def trigger_extraction(
 
 @router.get("/{document_id}/export")
 async def export_extraction(
+    request: Request,
     document_id: str,
     format: str = "md",
     db: AsyncSession = Depends(get_db),
@@ -85,6 +86,25 @@ async def export_extraction(
         return Response(
             content=content, media_type="text/csv",
             headers={"Content-Disposition": f'attachment; filename="{filename_base}.csv"'},
+        )
+    elif format == "sii":
+        from backend.services.sii_exporter import generate_sii_xml
+        titular_cif = request.query_params.get("titular_cif", "")
+        titular_name = request.query_params.get("titular_name", "")
+        periodo = request.query_params.get("periodo", "")
+        xml_bytes, _warnings = generate_sii_xml(result, titular_cif, titular_name, periodo)
+        return Response(
+            content=xml_bytes,
+            media_type="application/xml",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}_sii.xml"'},
+        )
+    elif format == "facturae":
+        from backend.services.facturae_exporter import generate_facturae_xml
+        xml_bytes = generate_facturae_xml(result)
+        return Response(
+            content=xml_bytes,
+            media_type="application/xml",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}_facturae.xml"'},
         )
     content = to_markdown(result, doc.filename)
     return Response(
