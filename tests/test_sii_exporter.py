@@ -88,3 +88,13 @@ def test_sii_xml_warnings_base_imponible():
     assert len(warnings) >= 1
     warning_text = " ".join(warnings)
     assert "base imponible" in warning_text.lower()
+
+
+def test_sii_xml_date_format():
+    """AEAT SII requires dates in dd/mm/YYYY format, not ISO 8601."""
+    xml_bytes, _ = generate_sii_xml(
+        make_result(issue_date="2024-01-15"), "A12345678", "Test SA", "2024-01"
+    )
+    xml_str = xml_bytes.decode("utf-8")
+    assert "15/01/2024" in xml_str
+    assert "2024-01-15" not in xml_str

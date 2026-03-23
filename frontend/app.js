@@ -985,6 +985,9 @@ async function loadChatPanel(documentId) {
       });
       currentChatSessionId = session.id;
       if (sessionInfo) sessionInfo.textContent = `Session ${currentChatSessionId}`;
+      // Trigger indexing in background (fire and forget — don't block chat)
+      fetch(`/api/chat/index/${documentId}`, { method: 'POST' })
+          .catch(err => console.warn('RAG indexing failed:', err));
       messagesDiv.innerHTML = '';
     }
 

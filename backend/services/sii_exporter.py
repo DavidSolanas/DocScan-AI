@@ -25,6 +25,17 @@ def _fmt(v: Decimal | None, default: str = "0.00") -> str:
     return f"{v:.2f}"
 
 
+def _to_sii_date(iso_date: str | None) -> str:
+    """Convert ISO 8601 date (YYYY-MM-DD) to SII format (dd/mm/YYYY)."""
+    if not iso_date:
+        return date.today().strftime("%d/%m/%Y")
+    try:
+        d = date.fromisoformat(iso_date)
+        return d.strftime("%d/%m/%Y")
+    except ValueError:
+        return date.today().strftime("%d/%m/%Y")
+
+
 def generate_sii_xml(
     result: ExtractionResult,
     titular_cif: str,
@@ -54,7 +65,7 @@ def generate_sii_xml(
         year = str(date.today().year)
         month_2digit = str(date.today().month).zfill(2)
 
-    today_str = date.today().isoformat()
+    today_str = date.today().strftime("%d/%m/%Y")
 
     # Build XML tree
     soapenv_ns = f"{{{_NS_SOAPENV}}}"
@@ -83,7 +94,9 @@ def generate_sii_xml(
     id_emisor = ET.SubElement(id_factura, f"{sii_ns}IDEmisorFactura")
     ET.SubElement(id_emisor, f"{sii_ns}NIF").text = a.issuer_cif or ""
     ET.SubElement(id_factura, f"{sii_ns}NumSerieFacturaEmisor").text = a.invoice_number or ""
-    ET.SubElement(id_factura, f"{sii_ns}FechaExpedicionFacturaEmisor").text = a.issue_date or ""
+    ET.SubElement(
+        id_factura, f"{sii_ns}FechaExpedicionFacturaEmisor"
+    ).text = _to_sii_date(a.issue_date)
 
     factura = ET.SubElement(registro, f"{sii_ns}FacturaRecibida")
     ET.SubElement(factura, f"{sii_ns}TipoFactura").text = "F1"
