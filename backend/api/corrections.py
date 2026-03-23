@@ -42,8 +42,14 @@ async def _get_extraction(db: AsyncSession, document_id: str) -> Extraction:
 
 async def _load_corrected_dict(db: AsyncSession, extraction: Extraction) -> dict:
     """Read raw JSON from disk and overlay current corrections."""
-    with open(extraction.json_path) as f:
-        raw = json.load(f)
+    try:
+        with open(extraction.json_path) as f:
+            raw = json.load(f)
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Extraction data file missing or corrupt: {exc}",
+        ) from exc
     corrections = await get_latest_corrections(db, extraction.id)
     return apply_corrections_to_dict(raw, corrections)
 

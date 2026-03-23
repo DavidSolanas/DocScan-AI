@@ -87,7 +87,12 @@ async def update_template_by_id(
     if body.fields is not None:
         kwargs["fields_json"] = json.dumps([f.model_dump() for f in body.fields])
 
+    if not kwargs:
+        return _to_response(tmpl)
+
     updated = await update_template(db, template_id, **kwargs)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Template not found")
     return _to_response(updated)
 
 
