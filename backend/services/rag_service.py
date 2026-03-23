@@ -169,7 +169,13 @@ class RagService:
 
         # Build (chunk_text, page_number) pairs
         if page_texts is not None:
-            chunk_page_pairs: list[tuple[str, int | None]] = self._chunk_pages(page_texts)
+            page_pairs = self._chunk_pages(page_texts)
+            if page_pairs:
+                chunk_page_pairs: list[tuple[str, int | None]] = page_pairs
+            else:
+                # Fall back to flat text if page_texts yielded nothing
+                flat_chunks = self._chunk_text(text)
+                chunk_page_pairs = [(c, None) for c in flat_chunks]
         else:
             chunk_page_pairs = [(chunk, None) for chunk in self._chunk_text(text)]
 
@@ -191,10 +197,12 @@ class RagService:
             return 0
 
         ids = [f"{document_id}_{i}" for i in range(len(chunks))]
-        metadatas = [
-            {"document_id": document_id, "chunk_index": i, "page_number": page_numbers[i]}
-            for i in range(len(chunks))
-        ]
+        metadatas = []
+        for i in range(len(chunks)):
+            meta: dict = {"chunk_index": i, "document_id": document_id}
+            if page_numbers[i] is not None:
+                meta["page_number"] = page_numbers[i]
+            metadatas.append(meta)
 
         # Get embeddings for all chunks
         embeddings = []

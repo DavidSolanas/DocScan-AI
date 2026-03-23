@@ -140,6 +140,17 @@ def test_person_type_code_none_returns_J():
     assert _person_type_code("") == "J"
 
 
+def test_person_type_code_klm_returns_F():
+    """Special NIF prefixes K, L, M are natural persons → F."""
+    assert _person_type_code("K1234567L") == "F"  # NIF for minors
+    assert _person_type_code("L1234567M") == "F"  # Spanish nationals abroad
+    assert _person_type_code("M1234567R") == "F"  # Foreigners without NIE
+    # Lowercase should also work (function uses .upper())
+    assert _person_type_code("k1234567L") == "F"
+    assert _person_type_code("l1234567M") == "F"
+    assert _person_type_code("m1234567R") == "F"
+
+
 def test_generate_uses_correct_person_type_code():
     """XML PersonTypeCode elements reflect the actual tax ID type."""
     # CIF seller (B...) → J, NIF buyer (12...) → F

@@ -29,10 +29,10 @@ def _person_type_code(tax_id: str | None) -> str:
     if not tax_id:
         return "J"
     first = tax_id[0].upper()
-    # NIF: starts with digit; NIE: starts with X/Y/Z → natural person
-    if first.isdigit() or first in ("X", "Y", "Z"):
+    # NIF: starts with digit; NIE: starts with X/Y/Z; special NIF: K/L/M → natural person
+    if first.isdigit() or first in ("X", "Y", "Z", "K", "L", "M"):
         return "F"
-    return "J"  # CIF: starts with A-W (excluding X,Y,Z) → legal entity
+    return "J"  # CIF: starts with A-W (excluding X,Y,Z,K,L,M) → legal entity
 
 
 def generate_facturae_xml(result: ExtractionResult) -> bytes:
