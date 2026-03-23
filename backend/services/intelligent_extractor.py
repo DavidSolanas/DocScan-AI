@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 from backend.config import get_settings
 from backend.schemas.extraction import AnchorFields, ExtractionIssue, ExtractionResult
 from backend.services.anchor_validator import AnchorValidator
-from backend.services.llm_service import LLMParseError, LLMService, get_llm_service
+from backend.services.llm_service import LLMParseError, LLMService, LLMTimeoutError, get_llm_service
 
 MAX_TEXT_CHARS = 12_000
 
@@ -22,23 +22,27 @@ _PROMPT_TEMPLATE = """\
 {text}
 
 ---
-Extract these CRITICAL fields (legally mandatory — infer if needed, null if truly absent):
-- issuer_name, issuer_cif           (emisor / vendedor)
-- recipient_name, recipient_cif      (receptor / comprador)
-- invoice_number, issue_date         (número factura, fecha ISO 8601 YYYY-MM-DD)
-- base_imponible, iva_rate, iva_amount
+Please extract the following information from the document. The document is likely in Spanish.
+This is not a rigid schema but a guide to extract all relevant legal and financial information.
+
+Map the core information to these CRITICAL fields (legally mandatory — infer if needed, null if truly absent):
+- issuer_name, issuer_cif           (emisor / vendedor, NIF/CIF/DNI)
+- recipient_name, recipient_cif      (receptor / comprador / cliente, NIF/CIF/DNI)
+- invoice_number, issue_date         (número de factura, fecha ISO 8601 YYYY-MM-DD)
+- base_imponible, iva_rate, iva_amount (base imponible, % IVA, cuota IVA)
 - irpf_rate, irpf_amount             (retención IRPF, null if absent)
 - total_amount, currency             (total a pagar, default "EUR")
 
-Also discover and include anything else relevant in "discovered":
-line items, addresses, payment info, references, notes, etc.
+Also discover and include ANYTHING ELSE relevant in the "discovered" object:
+line items (conceptos), addresses (direcciones), payment info (forma de pago, IBAN), references, notes, etc.
+Extract as much structured detail as possible into "discovered".
 
 Note any anomalies or inconsistencies in "llm_observations".
 
 Respond with valid JSON only:
 {{
   "anchor": {{ <critical fields above> }},
-  "discovered": {{ <anything else> }},
+  "discovered": {{ <all other extracted information as structured key-value pairs> }},
   "llm_observations": ["<observation>"]
 }}"""
 
@@ -57,6 +61,8 @@ class IntelligentExtractor:
 
         try:
             raw = await self._llm.complete_json(prompt, system=_SYSTEM_MSG)
+        except LLMTimeoutError:
+            return self._failure(model, "LLM timed out — model took too long to respond")
         except LLMParseError:
             return self._failure(model, "LLM parse failure — could not extract valid JSON")
 

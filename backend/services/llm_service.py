@@ -37,6 +37,20 @@ class LLMParseError(LLMError):
 
 _THINK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
 _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```")
+_INVALID_ESCAPE_RE = re.compile(r'\\([^"\\/bfnrtu])')  # e.g. \' → '
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")  # invalid in JSON strings
+
+
+def _sanitize_json(s: str) -> str:
+    """Fix common LLM JSON output hygiene issues before parsing.
+
+    - Raw control characters (e.g. \\x01 from OCR artifacts): stripped.
+    - Invalid escape sequences (e.g. \\' from Python/C-style escaping): unescaped.
+    JSON allows only: \\\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX
+    """
+    s = _INVALID_ESCAPE_RE.sub(r"\1", s)
+    s = _CONTROL_CHAR_RE.sub("", s)
+    return s
 
 
 def _extract_json(raw: str) -> str:
@@ -90,11 +104,19 @@ class OllamaProvider:
     async def complete(
         self, prompt: str, system: str | None = None, json_mode: bool = False
     ) -> str:
-        payload: dict = {"model": self.model, "prompt": prompt, "stream": False}
+        payload: dict = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "think": False,  # Disable extended thinking (Qwen3/DeepSeek-R1); no-op for non-thinking models
+            "options": {
+                "temperature": 0.0
+            }
+        }
         if system:
             payload["system"] = system
-        if json_mode:
-            payload["format"] = "json"
+        # Do not use format="json" as it breaks Qwen reasoning models in Ollama.
+        # Our _extract_json parser handles markdown blocks and raw structures perfectly.
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
@@ -121,6 +143,9 @@ class OllamaProvider:
             "model": self.model,
             "messages": [{"role": "user", "content": prompt, "images": [b64]}],
             "stream": False,
+            "options": {
+                "temperature": 0.0
+            }
         }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
@@ -166,8 +191,9 @@ class LLMService:
         last_exc: Exception | None = None
         for attempt in range(self._max_retries + 1):
             raw = await self._provider.complete(prompt, system=system, json_mode=True)
+            extracted = _extract_json(raw)
             try:
-                return json.loads(_extract_json(raw))
+                return json.loads(_sanitize_json(extracted))
             except json.JSONDecodeError as exc:
                 last_exc = exc
         raise LLMParseError(f"JSON parse failed after {self._max_retries + 1} attempts") from last_exc

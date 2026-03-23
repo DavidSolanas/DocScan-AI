@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     LAYOUT_DETECTION_ENABLED: bool = True
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_DEFAULT_MODEL: str = "qwen3.5:9b"
-    OLLAMA_TIMEOUT: int = 120        # seconds per Ollama call
+    OLLAMA_TIMEOUT: int = 300        # seconds per Ollama call
     LLM_MAX_RETRIES: int = 2
     TABLE_EXTRACTION_ENABLED: bool = True
 
