@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from io import BytesIO
 from typing import Any
 
@@ -139,6 +139,7 @@ def _build_line_items_sheet(ws: Any, result: ExtractionResult) -> None:
 def _build_raw_text_sheet(ws: Any, result: ExtractionResult) -> None:
     """Populate the Raw Text sheet."""
     raw_text = result.discovered.get("raw_text", "") or ""
+    ws.freeze_panes = ws["A2"]
     cell = ws.cell(row=1, column=1, value=raw_text)
     cell.alignment = Alignment(wrap_text=True)
     ws.column_dimensions["A"].width = 80

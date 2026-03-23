@@ -190,10 +190,9 @@ def to_docx(
     issue_date = getattr(anchor, "issue_date", None) or ""
     issuer_cif = getattr(anchor, "issuer_cif", None) or ""
     recipient_name = getattr(anchor, "recipient_name", None) or ""
-    meta_text = f"Fecha: {issue_date}  |  Emisor CIF: {issuer_cif}  |  Receptor: {recipient_name}"
-    p_meta = doc.add_paragraph(meta_text, style="Normal")
-    for run in p_meta.runs:
-        run.font.color.rgb = _GREY
+    p_meta = doc.add_paragraph(style="Normal")
+    run_meta = p_meta.add_run(f"Fecha: {issue_date}  |  Emisor CIF: {issuer_cif}  |  Receptor: {recipient_name}")
+    run_meta.font.color.rgb = _GREY
 
     # ── Resumen Fiscal ───────────────────────────────────────────────────────
     doc.add_heading("Resumen Fiscal", level=2)
@@ -225,11 +224,10 @@ def to_docx(
     # ── Footer ───────────────────────────────────────────────────────────────
     model = result.llm_model or "unknown"
     timestamp = result.extraction_timestamp or ""
-    footer_text = f"Extraído con {model} el {timestamp}"
-    p_footer = doc.add_paragraph(footer_text, style="Normal")
-    for run in p_footer.runs:
-        run.font.color.rgb = _GREY
-        run.font.size = Pt(9)
+    p_footer = doc.add_paragraph(style="Normal")
+    run_footer = p_footer.add_run(f"Extraído con {model} el {timestamp}")
+    run_footer.font.color.rgb = _GREY
+    run_footer.font.size = Pt(9)
 
     buf = BytesIO()
     doc.save(buf)
