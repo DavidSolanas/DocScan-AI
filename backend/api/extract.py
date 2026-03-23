@@ -161,7 +161,6 @@ async def reextract_field(
     result = await get_corrected_extraction_result(db, extraction)
 
     # Determine current value for the requested field
-    import dataclasses as _dc
     current_value: str | None = None
     if field.startswith("anchor."):
         field_name = field[len("anchor."):]

@@ -158,8 +158,6 @@ class IntelligentExtractor:
             # Validate using AnchorValidator — build a minimal AnchorFields with only
             # the field in question populated so the validator can run its checks.
             field_name = field_path.split(".")[-1] if "." in field_path else field_path
-            test_anchor = AnchorFields(**{field_name: proposed}) if hasattr(AnchorFields, field_name) else AnchorFields()  # type: ignore[call-arg]
-
             # Use safe construction: only set the field if it's a valid AnchorFields attr
             import dataclasses as _dc
             anchor_field_names = {f.name for f in _dc.fields(AnchorFields)}
