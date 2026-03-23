@@ -109,6 +109,76 @@ class IntelligentExtractor:
             extraction_timestamp=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
 
+    _FIELD_DESCRIPTIONS: dict[str, str] = {
+        "anchor.invoice_number": "Invoice number (número de factura)",
+        "anchor.issuer_cif": "Issuer NIF/CIF (NIF/CIF del emisor/vendedor)",
+        "anchor.issuer_name": "Issuer company name (nombre del emisor)",
+        "anchor.recipient_cif": "Recipient NIF/CIF (NIF/CIF del receptor/comprador)",
+        "anchor.recipient_name": "Recipient company name (nombre del receptor)",
+        "anchor.issue_date": "Invoice date in ISO YYYY-MM-DD format",
+        "anchor.base_imponible": "Tax base / base imponible (number, no currency symbol)",
+        "anchor.iva_rate": "IVA rate as percentage number (21 for 21%)",
+        "anchor.iva_amount": "IVA amount in currency units (cuota IVA)",
+        "anchor.irpf_rate": "IRPF retention rate as number (15 for 15%), null if absent",
+        "anchor.irpf_amount": "IRPF retention amount, null if absent",
+        "anchor.total_amount": "Total amount payable (total a pagar)",
+        "anchor.currency": "Currency code (default EUR)",
+    }
+
+    async def extract_field(
+        self,
+        field_path: str,
+        text: str,
+        current_value: str | None = None,
+    ) -> tuple[str | None, str]:
+        """
+        Re-extract a single field from document text.
+        Returns (proposed_value, confidence) where confidence is:
+        - "high": non-null + AnchorValidator finds no issues for this field
+        - "medium": non-null + AnchorValidator flags an issue for this field
+        - "low": null/empty result from LLM
+        - "failed": exception during extraction
+        """
+        field_description = self._FIELD_DESCRIPTIONS.get(field_path, field_path)
+
+        prompt = (
+            f"Extract the following field from this invoice text:\n"
+            f"Field: {field_description}\n"
+            f"Current value: {current_value or 'unknown'}\n\n"
+            f"Document text:\n{text[:3000]}\n\n"
+            f"Respond with ONLY the extracted value, or 'null' if not found."
+        )
+
+        try:
+            raw_response = await self._llm.complete(prompt)
+            proposed = raw_response.strip()
+            if proposed.lower() in ("null", "none", ""):
+                return None, "low"
+
+            # Validate using AnchorValidator — build a minimal AnchorFields with only
+            # the field in question populated so the validator can run its checks.
+            field_name = field_path.split(".")[-1] if "." in field_path else field_path
+            test_anchor = AnchorFields(**{field_name: proposed}) if hasattr(AnchorFields, field_name) else AnchorFields()  # type: ignore[call-arg]
+
+            # Use safe construction: only set the field if it's a valid AnchorFields attr
+            import dataclasses as _dc
+            anchor_field_names = {f.name for f in _dc.fields(AnchorFields)}
+            if field_name in anchor_field_names:
+                kwargs: dict = {field_name: proposed}
+                test_anchor = AnchorFields(**kwargs)
+            else:
+                test_anchor = AnchorFields()
+
+            issues = AnchorValidator().validate(test_anchor)
+            field_issues = [i for i in issues if i.field == field_name]
+
+            if not field_issues:
+                return proposed, "high"
+            else:
+                return proposed, "medium"
+        except Exception:
+            return None, "failed"
+
     @staticmethod
     def _parse_anchor(raw: dict) -> AnchorFields:
         def _dec(v: object) -> Decimal | None:

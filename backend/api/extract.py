@@ -18,6 +18,7 @@ from backend.config import get_settings
 from backend.database import crud
 from backend.database.engine import AsyncSessionLocal, get_db
 from backend.database.models import Job
+from backend.schemas.corrections import ReextractFieldResponse
 from backend.schemas.jobs import JobResponse
 from backend.services.llm_service import LLMConnectionError, LLMResponseError, LLMTimeoutError, get_llm_service
 
@@ -64,6 +65,7 @@ async def export_extraction(
     request: Request,
     document_id: str,
     format: str = "md",
+    template_id: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     doc = await crud.get_document(db, document_id)
@@ -74,14 +76,40 @@ async def export_extraction(
     if extraction is None or not Path(extraction.json_path).exists():
         raise HTTPException(status_code=404, detail="No extraction available for this document")
 
-    from backend.schemas.extraction import ExtractionResult
     from backend.services.extractor_export import to_csv, to_markdown
 
-    raw = json.loads(Path(extraction.json_path).read_text())
-    result = ExtractionResult.from_dict(raw)
+    # Apply corrections overlay — the corrected result is the canonical view for all formats
+    from backend.services.correction_service import get_corrected_extraction_result
+    result = await get_corrected_extraction_result(db, extraction)
+
+    # Resolve template fields if template_id provided
+    template_fields = None
+    if template_id:
+        from backend.database.crud import get_template
+        from backend.services.template_service import parse_template_fields
+        tmpl = await get_template(db, template_id)
+        if tmpl:
+            template_fields = parse_template_fields(tmpl.fields_json)
+
     filename_base = Path(doc.filename).stem
 
-    if format == "csv":
+    if format == "xlsx":
+        from backend.services.excel_exporter import to_xlsx
+        content = to_xlsx(result, doc.filename, template_fields)
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.xlsx"'},
+        )
+    elif format == "docx":
+        from backend.services.word_exporter import to_docx
+        content = to_docx(result, doc.filename, template_fields)
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.docx"'},
+        )
+    elif format == "csv":
         content = to_csv(result)
         return Response(
             content=content, media_type="text/csv",
@@ -110,6 +138,49 @@ async def export_extraction(
     return Response(
         content=content, media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{filename_base}.md"'},
+    )
+
+
+@router.post("/{document_id}/reextract-field", response_model=ReextractFieldResponse)
+async def reextract_field(
+    document_id: str,
+    field: str,
+    db: AsyncSession = Depends(get_db),
+):
+
+    doc = await crud.get_document(db, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    extraction = await crud.get_extraction_by_document_id(db, document_id)
+    if extraction is None or not Path(extraction.json_path).exists():
+        raise HTTPException(status_code=404, detail="No extraction available for this document")
+
+    # Get corrected result for context (to resolve current_value)
+    from backend.services.correction_service import get_corrected_extraction_result
+    result = await get_corrected_extraction_result(db, extraction)
+
+    # Determine current value for the requested field
+    import dataclasses as _dc
+    current_value: str | None = None
+    if field.startswith("anchor."):
+        field_name = field[len("anchor."):]
+        anchor_val = getattr(result.anchor, field_name, None)
+        current_value = str(anchor_val) if anchor_val is not None else None
+    else:
+        discovered_val = result.discovered.get(field)
+        current_value = str(discovered_val) if discovered_val is not None else None
+
+    text = doc.text_content or ""
+
+    from backend.services.intelligent_extractor import IntelligentExtractor
+    extractor = IntelligentExtractor()
+    proposed_value, confidence = await extractor.extract_field(field, text, current_value)
+
+    return ReextractFieldResponse(
+        field=field,
+        proposed_value=proposed_value,
+        confidence=confidence,
     )
 
 

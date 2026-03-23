@@ -177,3 +177,91 @@ async def test_export_404_when_no_extraction(client: AsyncClient, sample_pdf: Pa
     doc_id = await _upload_pdf(client, sample_pdf)
     resp = await client.get(f"/api/extract/{doc_id}/export?format=md")
     assert resp.status_code == 404
+
+
+# ── Phase 7: xlsx/docx/template/reextract-field ────────────────────────────────
+
+async def _setup_extraction(client: AsyncClient, sample_pdf: Path, tmp_path: Path) -> str:
+    """Upload a PDF and create a completed extraction; return the doc_id."""
+    doc_id = await _upload_pdf(client, sample_pdf)
+    result = _make_extraction_result()
+    json_path = tmp_path / f"{doc_id}.json"
+    json_path.write_text(_result_to_json(result))
+
+    import backend.database.engine as engine_module
+    from backend.database.crud import create_extraction, create_job
+
+    async with engine_module.AsyncSessionLocal() as db:
+        await create_job(db, document_id=doc_id, job_type="extraction", status="completed")
+        await create_extraction(db, doc_id, result, str(json_path))
+
+    return doc_id
+
+
+@pytest.mark.asyncio
+async def test_export_xlsx_returns_correct_content_type(
+    client: AsyncClient, sample_pdf: Path, tmp_path: Path
+):
+    doc_id = await _setup_extraction(client, sample_pdf, tmp_path)
+    resp = await client.get(f"/api/extract/{doc_id}/export?format=xlsx")
+    assert resp.status_code == 200
+    assert "spreadsheetml" in resp.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_export_docx_returns_correct_content_type(
+    client: AsyncClient, sample_pdf: Path, tmp_path: Path
+):
+    doc_id = await _setup_extraction(client, sample_pdf, tmp_path)
+    resp = await client.get(f"/api/extract/{doc_id}/export?format=docx")
+    assert resp.status_code == 200
+    assert "wordprocessingml" in resp.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_export_with_template_id(
+    client: AsyncClient, sample_pdf: Path, tmp_path: Path
+):
+    """Export with a template_id query param should return 200 regardless of whether the
+    template exists (a missing template just means no field filtering)."""
+    doc_id = await _setup_extraction(client, sample_pdf, tmp_path)
+    resp = await client.get(
+        f"/api/extract/{doc_id}/export?format=xlsx&template_id=nonexistent-tmpl"
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_reextract_field_404_doc_not_found(client: AsyncClient):
+    resp = await client.post("/api/extract/nonexistent/reextract-field?field=anchor.invoice_number")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reextract_field_404_no_extraction(client: AsyncClient, sample_pdf: Path):
+    doc_id = await _upload_pdf(client, sample_pdf)
+    resp = await client.post(f"/api/extract/{doc_id}/reextract-field?field=anchor.invoice_number")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reextract_field_returns_response(
+    client: AsyncClient, sample_pdf: Path, tmp_path: Path
+):
+    """reextract-field endpoint calls IntelligentExtractor.extract_field and returns ReextractFieldResponse."""
+    doc_id = await _setup_extraction(client, sample_pdf, tmp_path)
+
+    with patch(
+        "backend.services.intelligent_extractor.IntelligentExtractor.extract_field",
+        new_callable=AsyncMock,
+        return_value=("F-2026-001", "high"),
+    ):
+        resp = await client.post(
+            f"/api/extract/{doc_id}/reextract-field?field=anchor.invoice_number"
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["field"] == "anchor.invoice_number"
+    assert data["proposed_value"] == "F-2026-001"
+    assert data["confidence"] == "high"
