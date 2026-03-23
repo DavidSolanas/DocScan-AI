@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 
 from backend.config import get_settings
-from backend.services.llm_service import LLMConnectionError, LLMTimeoutError
+from backend.services.llm_service import LLMConnectionError, LLMResponseError, LLMTimeoutError
 
 if TYPE_CHECKING:
     from backend.schemas.extraction import ExtractionResult
@@ -123,9 +122,15 @@ class RagService:
             async with httpx.AsyncClient(timeout=float(settings.OLLAMA_TIMEOUT)) as client:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
-                return response.json()["embedding"]
+                emb = response.json().get("embedding")
+                if emb is None:
+                    raise LLMResponseError("Ollama embeddings response missing 'embedding' key")
+                return emb
         except httpx.ConnectError as exc:
             raise LLMConnectionError(str(exc)) from exc
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            raise LLMConnectionError(f"Ollama embeddings HTTP error: {status}") from exc
         except httpx.TimeoutException as exc:
             raise LLMTimeoutError(str(exc)) from exc
 

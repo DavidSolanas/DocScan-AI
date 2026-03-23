@@ -1,11 +1,14 @@
 """Tests for rag_service. All ChromaDB and Ollama calls are mocked."""
 from __future__ import annotations
+
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from backend.schemas.extraction import AnchorFields, ExtractionResult
+from backend.services.llm_service import LLMConnectionError
 from backend.services.rag_service import RagService
 
 
@@ -168,7 +171,9 @@ async def test_query_returns_ranked_results():
     mock_collection = MagicMock()
     mock_collection.query = MagicMock(return_value={
         "documents": [["chunk A", "chunk B"]],
-        "metadatas": [[{"document_id": "doc1", "chunk_index": 0}, {"document_id": "doc1", "chunk_index": 1}]],
+        "metadatas": [
+            [{"document_id": "doc1", "chunk_index": 0}, {"document_id": "doc1", "chunk_index": 1}]
+        ],
         "distances": [[0.1, 0.5]],
     })
     svc._collection = mock_collection
@@ -184,9 +189,6 @@ async def test_query_returns_ranked_results():
 # 10. _get_embedding raises LLMConnectionError on connect error
 @pytest.mark.asyncio
 async def test_get_embedding_connection_error():
-    import httpx
-    from backend.services.llm_service import LLMConnectionError
-
     svc = RagService()
 
     mock_client = AsyncMock()
