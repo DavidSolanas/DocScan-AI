@@ -8,7 +8,13 @@ from backend.schemas.extraction import ExtractionResult
 
 def parse_template_fields(fields_json: str) -> list[dict]:
     """Deserialise fields_json string → list of {field_path, display_name, include} dicts."""
-    return json.loads(fields_json)
+    try:
+        data = json.loads(fields_json)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"fields_json is not valid JSON: {exc}") from exc
+    if not isinstance(data, list):
+        raise ValueError("fields_json must be a JSON array")
+    return data
 
 
 def _get_anchor_value(result: ExtractionResult, key: str) -> Any:
@@ -21,7 +27,8 @@ def _get_anchor_value(result: ExtractionResult, key: str) -> Any:
 
 def _get_discovered_value(result: ExtractionResult, key: str) -> Any:
     """Read a value from result.discovered dict."""
-    return result.discovered.get(key)
+    discovered = result.discovered or {}
+    return discovered.get(key)
 
 
 def filter_extraction_by_template(
@@ -47,8 +54,9 @@ def filter_extraction_by_template(
         field_path: str = field["field_path"]
         display_name: str = field["display_name"]
 
+        discovered = result.discovered or {}
         if field_path == "lines":
-            value = result.discovered.get("line_items")
+            value = discovered.get("line_items")
         elif "." in field_path:
             section, _, key = field_path.partition(".")
             if section == "anchor":

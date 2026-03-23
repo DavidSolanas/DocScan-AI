@@ -149,3 +149,38 @@ def test_filter_extraction_discovered_field():
     output = filter_extraction_by_template(result, template_fields)
     assert "Raw Text" in output
     assert output["Raw Text"] == "Full OCR text here"
+
+
+# ---------------------------------------------------------------------------
+# test_parse_template_fields_invalid_json
+# ---------------------------------------------------------------------------
+
+
+def test_parse_template_fields_invalid_json():
+    with pytest.raises(ValueError, match="fields_json is not valid JSON"):
+        parse_template_fields("not valid json {{{")
+
+
+# ---------------------------------------------------------------------------
+# test_parse_template_fields_not_a_list
+# ---------------------------------------------------------------------------
+
+
+def test_parse_template_fields_not_a_list():
+    with pytest.raises(ValueError, match="fields_json must be a JSON array"):
+        parse_template_fields(json.dumps({"field_path": "anchor.total_amount"}))
+
+
+# ---------------------------------------------------------------------------
+# test_filter_extraction_unknown_prefix
+# ---------------------------------------------------------------------------
+
+
+def test_filter_extraction_unknown_prefix():
+    result = _make_result()
+    template_fields = [
+        {"field_path": "foo.bar", "display_name": "Unknown Field", "include": True},
+    ]
+    output = filter_extraction_by_template(result, template_fields)
+    assert "Unknown Field" in output
+    assert output["Unknown Field"] is None
