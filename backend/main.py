@@ -9,12 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.chat import router as chat_router
+from backend.api.corrections import router as corrections_router
 from backend.api.documents import router as documents_router
 from backend.api.export import router as export_router
 from backend.api.extract import router as extract_router
 from backend.api.health import router as health_router
 from backend.api.jobs import router as jobs_router
 from backend.api.ocr import router as ocr_router
+from backend.api.templates import router as templates_router
 from backend.config import ensure_directories
 from backend.database.engine import init_db
 
@@ -48,6 +50,8 @@ app.include_router(ocr_router)
 app.include_router(extract_router)
 app.include_router(chat_router)
 app.include_router(export_router)
+app.include_router(corrections_router)
+app.include_router(templates_router)
 
 # StaticFiles mount must come last so API routes take priority
 _frontend_dir = Path(__file__).parent.parent / "frontend"
