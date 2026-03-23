@@ -129,6 +129,7 @@
           <button class="tab-btn active" id="tab-text" data-tab="text">Text</button>
           <button class="tab-btn" id="tab-ocr" data-tab="ocr">OCR</button>
           <button class="tab-btn" id="tab-invoice" data-tab="invoice">Invoice</button>
+          <button class="tab-btn" id="tab-chat" data-tab="chat">Chat</button>
         </div>
         <div class="text-panel-actions" id="text-panel-actions" hidden>
           <button class="btn btn-ghost btn-sm" id="copy-text-btn" title="Copy text">
@@ -186,6 +187,38 @@
             <p>Extracting invoice data…</p>
           </div>
           <div id="invoice-panel" style="display:none;"></div>
+        </div>
+
+        <!-- Chat tab content -->
+        <div id="chat-tab-content" hidden>
+          <div class="chat-panel">
+            <div id="chat-session-info" style="font-size:12px;color:var(--text-muted)">
+              Select a document to start chatting.
+            </div>
+            <div id="chat-messages" class="chat-messages">
+              <p class="chat-empty">Select a document to start chatting.</p>
+            </div>
+            <div class="chat-input-row" id="chat-input-row">
+              <input type="text" id="chat-input" placeholder="Ask a question about the document…" disabled />
+              <button class="btn btn-primary btn-sm" id="chat-send-btn" disabled>Send</button>
+            </div>
+            <!-- IVA Summary download panel -->
+            <div class="iva-summary-panel">
+              <h4>IVA Summary Export</h4>
+              <div class="iva-date-row">
+                <label for="iva-date-from">From:</label>
+                <input type="date" id="iva-date-from" />
+                <label for="iva-date-to">To:</label>
+                <input type="date" id="iva-date-to" />
+                <label for="iva-role">Role:</label>
+                <select id="iva-role">
+                  <option value="recipient">Recipient</option>
+                  <option value="issuer">Issuer</option>
+                </select>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="iva-summary-download-btn">↓ Download IVA Summary CSV</button>
+            </div>
+          </div>
         </div>
 
         <!-- OCR tab content -->

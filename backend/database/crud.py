@@ -4,8 +4,9 @@ from dataclasses import asdict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from backend.database.models import Document, Extraction, Job
+from backend.database.models import ChatMessage, ChatSession, Document, Extraction, Job
 from backend.schemas.extraction import ExtractionResult
 
 
@@ -118,7 +119,9 @@ async def create_extraction(
         total_amount=str(a.total_amount) if a.total_amount is not None else None,
         currency=a.currency,
         status=_extraction_status(result),
-        validation_errors=_json.dumps([asdict(i) for i in result.issues]) if result.issues else None,
+        validation_errors=(
+            _json.dumps([asdict(i) for i in result.issues]) if result.issues else None
+        ),
         json_path=json_path,
     )
     db.add(extraction)
@@ -175,3 +178,63 @@ async def find_duplicate(
     )
     result = await db.execute(stmt)
     return result.scalars().first()
+
+
+# --- Chat CRUD ---
+
+
+async def create_session(db: AsyncSession, **kwargs) -> ChatSession:
+    session = ChatSession(**kwargs)
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+async def get_session(db: AsyncSession, session_id: str) -> ChatSession | None:
+    result = await db.execute(
+        select(ChatSession)
+        .options(selectinload(ChatSession.messages))
+        .where(ChatSession.id == session_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_sessions(db: AsyncSession, document_id: str | None = None) -> list[ChatSession]:
+    stmt = (
+        select(ChatSession)
+        .options(selectinload(ChatSession.messages))
+        .order_by(ChatSession.created_at.desc())
+    )
+    if document_id is not None:
+        stmt = stmt.where(ChatSession.document_id == document_id)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def create_message(
+    db: AsyncSession, session_id: str, role: str, content: str, citations: str | None = None
+) -> ChatMessage:
+    message = ChatMessage(session_id=session_id, role=role, content=content, citations=citations)
+    db.add(message)
+    await db.commit()
+    await db.refresh(message)
+    return message
+
+
+async def list_messages(db: AsyncSession, session_id: str) -> list[ChatMessage]:
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def delete_session(db: AsyncSession, session_id: str) -> bool:
+    session = await get_session(db, session_id)
+    if session is None:
+        return False
+    await db.delete(session)
+    await db.commit()
+    return True

@@ -61,6 +61,17 @@ class Settings(BaseSettings):
     OLLAMA_TIMEOUT: int = 300        # seconds per Ollama call
     LLM_MAX_RETRIES: int = 2
     TABLE_EXTRACTION_ENABLED: bool = True
+    OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
+    RAG_CHUNK_SIZE: int = 2000
+    RAG_CHUNK_OVERLAP: int = 100
+    RAG_TOP_K: int = 5
+    RAG_MAX_CHUNKS: int = 50
+    CHAT_MAX_HISTORY_MESSAGES: int = 6
+    RAG_ENABLED: bool = True
+
+    @property
+    def CHROMA_DIR(self) -> Path:
+        return self.DATA_DIR / "chroma"
 
     model_config = {"env_prefix": "DOCSCAN_"}
 
@@ -77,5 +88,6 @@ def ensure_directories() -> None:
         settings.THUMBNAILS_DIR,
         settings.EXTRACTIONS_DIR,
         settings.EXPORTS_DIR,
+        settings.CHROMA_DIR,
     ):
         directory.mkdir(parents=True, exist_ok=True)

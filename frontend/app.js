@@ -27,6 +27,10 @@ const state = {
   extractionPolling: null,
 };
 
+// ─── Chat state ───────────────────────────────────────────────────────────────
+let currentChatSessionId = null;
+let currentChatDocumentId = null;
+
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 
@@ -64,9 +68,11 @@ const textContent     = $("text-content");
 const tabText         = $("tab-text");
 const tabOcr          = $("tab-ocr");
 const tabInvoice      = $("tab-invoice");
+const tabChat         = $("tab-chat");
 const textTabContent  = $("text-tab-content");
 const ocrTabContent   = $("ocr-tab-content");
 const invoiceTabContent  = $("invoice-tab-content");
+const chatTabContent  = $("chat-tab-content");
 const reviewQueueSection = $("review-queue-section");
 const reviewCount     = $("review-count");
 const reviewList      = $("review-list");
@@ -465,14 +471,20 @@ function switchTab(tab) {
   tabText.classList.toggle("active", tab === "text");
   tabOcr.classList.toggle("active", tab === "ocr");
   tabInvoice.classList.toggle("active", tab === "invoice");
+  tabChat.classList.toggle("active", tab === "chat");
   textTabContent.hidden = tab !== "text";
   ocrTabContent.hidden = tab !== "ocr";
   invoiceTabContent.hidden = tab !== "invoice";
+  chatTabContent.hidden = tab !== "chat";
 }
 
 tabText.addEventListener("click", () => switchTab("text"));
 tabOcr.addEventListener("click", () => switchTab("ocr"));
 tabInvoice.addEventListener("click", () => switchTab("invoice"));
+tabChat.addEventListener("click", () => {
+  switchTab("chat");
+  loadChatPanel(state.activeDocId);
+});
 
 // ─── OCR ──────────────────────────────────────────────────────────────────────
 async function runOCR(docId) {
@@ -936,6 +948,149 @@ function renderDict(obj, depth = 0) {
   }
   return html + '</dl>';
 }
+
+// ─── Chat panel ───────────────────────────────────────────────────────────────
+async function loadChatPanel(documentId) {
+  currentChatDocumentId = documentId;
+  const messagesDiv = $('chat-messages');
+  const chatInput = $('chat-input');
+  const chatSendBtn = $('chat-send-btn');
+  const sessionInfo = $('chat-session-info');
+  if (!messagesDiv) return;
+
+  if (!documentId) {
+    messagesDiv.innerHTML = '<p class="chat-empty">Select a document to start chatting.</p>';
+    if (chatInput) chatInput.disabled = true;
+    if (chatSendBtn) chatSendBtn.disabled = true;
+    if (sessionInfo) sessionInfo.textContent = 'Select a document to start chatting.';
+    return;
+  }
+
+  messagesDiv.innerHTML = '<p class="chat-empty">Loading…</p>';
+  if (chatInput) chatInput.disabled = true;
+  if (chatSendBtn) chatSendBtn.disabled = true;
+
+  try {
+    const sessions = await apiJson(`/chat/sessions?document_id=${documentId}`);
+
+    if (sessions.length > 0) {
+      currentChatSessionId = sessions[0].id;
+      if (sessionInfo) sessionInfo.textContent = `Session ${currentChatSessionId}`;
+      await loadChatMessages(currentChatSessionId);
+    } else {
+      const session = await apiJson('/chat/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_id: documentId, mode: 'single' }),
+      });
+      currentChatSessionId = session.id;
+      if (sessionInfo) sessionInfo.textContent = `Session ${currentChatSessionId}`;
+      // Trigger indexing in background (fire and forget — don't block chat)
+      fetch(`/api/chat/index/${documentId}`, { method: 'POST' })
+          .catch(err => console.warn('RAG indexing failed:', err));
+      messagesDiv.innerHTML = '';
+    }
+
+    if (chatInput) chatInput.disabled = false;
+    if (chatSendBtn) chatSendBtn.disabled = false;
+  } catch (err) {
+    messagesDiv.innerHTML = `<p class="chat-error">Error: ${escHtml(String(err))}</p>`;
+  }
+}
+
+async function loadChatMessages(sessionId) {
+  const messages = await apiJson(`/chat/sessions/${sessionId}/messages`);
+  const messagesDiv = $('chat-messages');
+  messagesDiv.innerHTML = '';
+  messages.forEach(msg => appendChatMessage(msg));
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+function appendChatMessage(msg) {
+  const messagesDiv = $('chat-messages');
+  const div = document.createElement('div');
+  div.className = `chat-message ${escHtml(msg.role)}`;
+  div.innerHTML = `<span class="chat-role">${escHtml(msg.role)}</span>${escHtml(msg.content)}`;
+
+  if (msg.citations && msg.citations.length > 0) {
+    const citDiv = document.createElement('div');
+    citDiv.className = 'chat-citations';
+    citDiv.innerHTML = '<strong>Sources:</strong>';
+    msg.citations.forEach((c, i) => {
+      const text = c.text || '';
+      const snippet = text.slice(0, 100) + (text.length > 100 ? '\u2026' : '');
+      const entry = document.createElement('div');
+      entry.className = 'chat-citation';
+      entry.textContent = `[${i + 1}] ${snippet}`;
+      citDiv.appendChild(entry);
+    });
+    div.appendChild(citDiv);
+  }
+
+  messagesDiv.appendChild(div);
+}
+
+async function sendChatMessage() {
+  const input = $('chat-input');
+  if (!input || !currentChatSessionId) return;
+  const question = input.value.trim();
+  if (!question) return;
+  input.value = '';
+  input.disabled = true;
+  const sendBtn = $('chat-send-btn');
+  if (sendBtn) sendBtn.disabled = true;
+
+  appendChatMessage({ role: 'user', content: question, citations: null });
+
+  try {
+    const assistantMsg = await apiJson(`/chat/sessions/${currentChatSessionId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+    appendChatMessage(assistantMsg);
+    const messagesDiv = $('chat-messages');
+    if (messagesDiv) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  } catch (err) {
+    appendChatMessage({ role: 'assistant', content: `Error: ${err.message || err}`, citations: null });
+  } finally {
+    input.disabled = false;
+    if (sendBtn) sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+async function downloadIvaSummary() {
+  const dateFrom = $('iva-date-from') ? $('iva-date-from').value : '';
+  const dateTo = $('iva-date-to') ? $('iva-date-to').value : '';
+  const role = $('iva-role') ? $('iva-role').value : 'recipient';
+
+  let url = '/api/export/iva-summary/csv';
+  const params = [];
+  if (dateFrom) params.push(`date_from=${encodeURIComponent(dateFrom)}`);
+  if (dateTo) params.push(`date_to=${encodeURIComponent(dateTo)}`);
+  if (role) params.push(`role=${encodeURIComponent(role)}`);
+  if (params.length) url += '?' + params.join('&');
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'iva-summary.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// Wire up chat input events (module scripts run after DOM is ready)
+$('chat-send-btn').addEventListener('click', sendChatMessage);
+
+$('chat-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
+
+$('iva-summary-download-btn').addEventListener('click', downloadIvaSummary);
 
 // ─── Review queue ─────────────────────────────────────────────────────────────
 async function loadReviewQueue(docs) {

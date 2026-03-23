@@ -38,7 +38,8 @@ services:
         condition: service_healthy
     entrypoint: >
       sh -c "curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"glm-ocr\"}' &&
-             curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"qwen3.5:9b\"}'"
+             curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"qwen3.5:9b\"}' &&
+             curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"nomic-embed-text\"}'"
     restart: "no"
 
 volumes:
