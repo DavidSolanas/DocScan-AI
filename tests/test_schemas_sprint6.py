@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from backend.schemas.corrections import (
     CorrectionCreate,
@@ -64,3 +65,29 @@ def test_export_template_update_all_optional():
     assert obj.name is None
     assert obj.description is None
     assert obj.fields is None
+
+
+def test_export_template_response_parse_fields_invalid_json():
+    now = datetime(2026, 3, 23, 10, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValidationError) as exc_info:
+        ExportTemplateResponse(
+            id="tmpl-1",
+            name="My Template",
+            fields="not valid json [[[",
+            created_at=now,
+            updated_at=now,
+        )
+    assert "fields_json is not valid JSON" in str(exc_info.value)
+
+
+def test_export_template_response_parse_fields_not_a_list():
+    now = datetime(2026, 3, 23, 10, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValidationError) as exc_info:
+        ExportTemplateResponse(
+            id="tmpl-1",
+            name="My Template",
+            fields='{"a": 1}',
+            created_at=now,
+            updated_at=now,
+        )
+    assert "fields_json must be a JSON array" in str(exc_info.value)
