@@ -80,3 +80,11 @@ def test_sii_xml_warnings_for_missing_fields():
     warning_text = " ".join(warnings)
     assert "issuer CIF" in warning_text.lower() or "CIF" in warning_text
     assert "invoice number" in warning_text.lower() or "invoice" in warning_text.lower()
+
+
+def test_sii_xml_warnings_base_imponible():
+    result = make_result(base_imponible=None)
+    _, warnings = generate_sii_xml(result, "A12345678", "Test SA", "2024-01")
+    assert len(warnings) >= 1
+    warning_text = " ".join(warnings)
+    assert "base imponible" in warning_text.lower()
