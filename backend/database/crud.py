@@ -303,7 +303,7 @@ async def create_correction(
         is_locked=is_locked,
     )
     db.add(correction)
-    await db.flush()
+    await db.commit()
     await db.refresh(correction)
     return correction
 
@@ -315,7 +315,7 @@ async def set_correction_lock(
     if not correction:
         return None
     correction.is_locked = is_locked
-    await db.flush()
+    await db.commit()
     await db.refresh(correction)
     return correction
 
@@ -340,7 +340,7 @@ async def create_template(
 ) -> ExportTemplate:
     tmpl = ExportTemplate(name=name, description=description, fields_json=fields_json)
     db.add(tmpl)
-    await db.flush()
+    await db.commit()
     await db.refresh(tmpl)
     return tmpl
 
@@ -369,7 +369,7 @@ async def update_template(
         return None
     for key, value in kwargs.items():
         setattr(tmpl, key, value)
-    await db.flush()
+    await db.commit()
     await db.refresh(tmpl)
     return tmpl
 
@@ -379,4 +379,5 @@ async def delete_template(db: AsyncSession, template_id: str) -> bool:
     if not tmpl:
         return False
     await db.delete(tmpl)
+    await db.commit()
     return True

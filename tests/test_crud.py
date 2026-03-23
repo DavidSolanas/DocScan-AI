@@ -265,6 +265,55 @@ async def test_get_latest_corrections_returns_latest_only(db_session: AsyncSessi
 
 
 @pytest.mark.asyncio
+async def test_get_latest_corrections_multiple_fields(db_session: AsyncSession) -> None:
+    from backend.database.crud import create_correction, get_latest_corrections
+
+    doc = await _make_document(db_session)
+    extraction = await create_extraction(db_session, doc.id, _make_extraction_result(), "/tmp/ext.json")
+
+    # Two corrections for "anchor.issuer_name"
+    await create_correction(
+        db_session,
+        extraction_id=extraction.id,
+        field_path="anchor.issuer_name",
+        old_value="Original Name",
+        new_value="First Name",
+    )
+    latest_name = await create_correction(
+        db_session,
+        extraction_id=extraction.id,
+        field_path="anchor.issuer_name",
+        old_value="First Name",
+        new_value="Latest Name",
+    )
+
+    # Two corrections for "anchor.total_amount"
+    await create_correction(
+        db_session,
+        extraction_id=extraction.id,
+        field_path="anchor.total_amount",
+        old_value="100.00",
+        new_value="110.00",
+    )
+    latest_amount = await create_correction(
+        db_session,
+        extraction_id=extraction.id,
+        field_path="anchor.total_amount",
+        old_value="110.00",
+        new_value="121.00",
+    )
+
+    result = await get_latest_corrections(db_session, extraction.id)
+    assert len(result) == 2
+    assert "anchor.issuer_name" in result
+    assert "anchor.total_amount" in result
+    assert result["anchor.issuer_name"].id == latest_name.id
+    assert result["anchor.issuer_name"].new_value == "Latest Name"
+    assert result["anchor.total_amount"].id == latest_amount.id
+    assert result["anchor.total_amount"].new_value == "121.00"
+
+
+@pytest.mark.asyncio
 async def test_get_all_corrections_returns_history(db_session: AsyncSession) -> None:
     from backend.database.crud import create_correction, get_all_corrections
 
