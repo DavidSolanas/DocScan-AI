@@ -144,6 +144,9 @@ async def index_document(
 ):
     import json as _json
 
+    from sqlalchemy import select
+
+    from backend.database.models import Job
     from backend.schemas.extraction import ExtractionResult
 
     doc = await crud.get_document(db, document_id)
@@ -161,10 +164,34 @@ async def index_document(
         except Exception:
             pass
 
+    # Try to extract page-level texts from the latest completed OCR job
+    ocr_job_result = await db.execute(
+        select(Job)
+        .where(
+            Job.document_id == document_id,
+            Job.job_type == "ocr",
+            Job.status == "completed",
+        )
+        .order_by(Job.completed_at.desc())
+        .limit(1)
+    )
+    ocr_job = ocr_job_result.scalar_one_or_none()
+
+    page_texts: list[str] | None = None
+    if ocr_job and ocr_job.result:
+        try:
+            result_data = _json.loads(ocr_job.result)
+            # Job.result for OCR stores {"pages": [{"page_number": 1, "text": "...", ...}]}
+            pages = result_data.get("pages") or []
+            page_texts = [p.get("text") or "" for p in pages]
+        except Exception:
+            pass
+
     rag = RagService()
     chunks_indexed = await rag.index_document(
         document_id=document_id,
         text=doc.text_content,
         extraction_result=extraction_result,
+        page_texts=page_texts,
     )
     return {"chunks_indexed": chunks_indexed}

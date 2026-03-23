@@ -88,6 +88,18 @@ class RagService:
 
         return final[:max_chunks]
 
+    def _chunk_pages(self, page_texts: list[str]) -> list[tuple[str, int]]:
+        """Split each page into chunks, pairing each chunk with its 0-based page number.
+
+        Returns a flat list of (chunk_text, page_number) tuples.
+        """
+        result: list[tuple[str, int]] = []
+        for page_number, page_text in enumerate(page_texts):
+            chunks = self._chunk_text(page_text)
+            for chunk in chunks:
+                result.append((chunk, page_number))
+        return result
+
     def _build_invoice_summary(self, result: ExtractionResult) -> str:
         """Human-readable summary of anchor fields for indexing."""
         a = result.anchor
@@ -139,8 +151,14 @@ class RagService:
         document_id: str,
         text: str,
         extraction_result: ExtractionResult | None = None,
+        page_texts: list[str] | None = None,
     ) -> int:
-        """Index document text into ChromaDB. Returns number of chunks indexed."""
+        """Index document text into ChromaDB. Returns number of chunks indexed.
+
+        If *page_texts* is provided, chunks are derived page-by-page so that each
+        chunk carries a ``page_number`` metadata field (0-based).  Otherwise the
+        full *text* string is chunked and ``page_number`` is set to ``None``.
+        """
         collection = self._get_collection()
 
         # Delete existing chunks for this document
@@ -149,21 +167,34 @@ class RagService:
         except Exception:
             pass  # collection may be empty
 
-        chunks = self._chunk_text(text)
+        # Build (chunk_text, page_number) pairs
+        if page_texts is not None:
+            chunk_page_pairs: list[tuple[str, int | None]] = self._chunk_pages(page_texts)
+        else:
+            chunk_page_pairs = [(chunk, None) for chunk in self._chunk_text(text)]
+
+        chunks = [cp[0] for cp in chunk_page_pairs]
+        page_numbers = [cp[1] for cp in chunk_page_pairs]
 
         # Prepend invoice summary chunk if extraction available
         if extraction_result is not None:
             summary = self._build_invoice_summary(extraction_result)
             chunks = [summary] + chunks
+            page_numbers = [None] + page_numbers
 
         settings = get_settings()
-        chunks = chunks[:settings.RAG_MAX_CHUNKS]
+        max_chunks = settings.RAG_MAX_CHUNKS
+        chunks = chunks[:max_chunks]
+        page_numbers = page_numbers[:max_chunks]
 
         if not chunks:
             return 0
 
         ids = [f"{document_id}_{i}" for i in range(len(chunks))]
-        metadatas = [{"document_id": document_id, "chunk_index": i} for i in range(len(chunks))]
+        metadatas = [
+            {"document_id": document_id, "chunk_index": i, "page_number": page_numbers[i]}
+            for i in range(len(chunks))
+        ]
 
         # Get embeddings for all chunks
         embeddings = []
@@ -208,6 +239,7 @@ class RagService:
                 output.append({
                     "text": doc,
                     "chunk_index": meta.get("chunk_index", 0),
+                    "page_number": meta.get("page_number"),
                     "distance": dist,
                 })
         # Already sorted by distance ascending (ChromaDB default)

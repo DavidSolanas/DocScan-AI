@@ -24,6 +24,17 @@ def _fmt(v: Decimal | None, default: str = "0.00") -> str:
     return f"{v:.2f}"
 
 
+def _person_type_code(tax_id: str | None) -> str:
+    """Return "F" (natural person) or "J" (legal entity) from Spanish tax ID format."""
+    if not tax_id:
+        return "J"
+    first = tax_id[0].upper()
+    # NIF: starts with digit; NIE: starts with X/Y/Z → natural person
+    if first.isdigit() or first in ("X", "Y", "Z"):
+        return "F"
+    return "J"  # CIF: starts with A-W (excluding X,Y,Z) → legal entity
+
+
 def generate_facturae_xml(result: ExtractionResult) -> bytes:
     """Generate FacturaE 3.2.2 XML from an ExtractionResult."""
     a = result.anchor
@@ -62,7 +73,7 @@ def generate_facturae_xml(result: ExtractionResult) -> bytes:
 
     seller = ET.SubElement(parties, f"{fe}SellerParty")
     seller_tax = ET.SubElement(seller, f"{fe}TaxIdentification")
-    ET.SubElement(seller_tax, f"{fe}PersonTypeCode").text = "J"
+    ET.SubElement(seller_tax, f"{fe}PersonTypeCode").text = _person_type_code(a.issuer_cif)
     ET.SubElement(seller_tax, f"{fe}ResidenceTypeCode").text = "R"
     ET.SubElement(seller_tax, f"{fe}TaxIdentificationNumber").text = a.issuer_cif or ""
     seller_legal = ET.SubElement(seller, f"{fe}LegalEntity")
@@ -70,7 +81,7 @@ def generate_facturae_xml(result: ExtractionResult) -> bytes:
 
     buyer = ET.SubElement(parties, f"{fe}BuyerParty")
     buyer_tax = ET.SubElement(buyer, f"{fe}TaxIdentification")
-    ET.SubElement(buyer_tax, f"{fe}PersonTypeCode").text = "J"
+    ET.SubElement(buyer_tax, f"{fe}PersonTypeCode").text = _person_type_code(a.recipient_cif)
     ET.SubElement(buyer_tax, f"{fe}ResidenceTypeCode").text = "R"
     ET.SubElement(buyer_tax, f"{fe}TaxIdentificationNumber").text = a.recipient_cif or ""
     buyer_legal = ET.SubElement(buyer, f"{fe}LegalEntity")

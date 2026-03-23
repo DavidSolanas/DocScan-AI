@@ -37,12 +37,13 @@ async def get_iva_summary_csv(
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["IVA Rate", "Base Imponible Total", "IVA Total", "Invoice Count"])
+    writer.writerow(["IVA Rate", "Base Imponible Total", "IVA Total", "IRPF Retenido", "Invoice Count"])
     for rate_row in summary["rates"]:
         writer.writerow([
             f"{rate_row['iva_rate']}%",
             rate_row["base_imponible_total"],
             rate_row["iva_total"],
+            "",
             rate_row["invoice_count"],
         ])
     totals = summary["totals"]
@@ -50,6 +51,7 @@ async def get_iva_summary_csv(
         "TOTAL",
         totals["base_imponible_total"],
         totals["iva_total"],
+        totals["irpf_total"],
         totals["invoice_count"],
     ])
 
