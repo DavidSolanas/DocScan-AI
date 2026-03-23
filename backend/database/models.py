@@ -88,9 +88,10 @@ class Extraction(Base):
     status: Mapped[str] = mapped_column(String, default="valid")  # valid|invalid|needs_review
     validation_errors: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
     json_path: Mapped[str] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        nullable=False,
         default=_utcnow,
         onupdate=_utcnow,
     )
