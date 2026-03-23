@@ -849,3 +849,12 @@ html, body {
   color: var(--text);
   font-family: var(--font-sans);
 }
+
+/* Sprint 6 — Field editing + Templates */
+.field-row.corrected { border-left: 3px solid #f59e0b; background: #fffbeb; }
+.field-row.locked    { opacity: 0.9; }
+.field-edit-input    { border: 1px solid #3b82f6; border-radius: 3px; padding: 2px 6px; font-size: inherit; width: 100%; box-sizing: border-box; }
+.field-action-btn    { background: none; border: none; cursor: pointer; padding: 2px 4px; opacity: 0.6; font-size: 14px; }
+.field-action-btn:hover { opacity: 1; }
+.re-extract-spinner  { display: inline-block; width: 14px; height: 14px; border: 2px solid #ccc; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.re-extract-popover  { position: absolute; background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 100; min-width: 200px; }

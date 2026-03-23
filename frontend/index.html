@@ -173,7 +173,23 @@
           <div id="invoice-download-bar" style="display:none; margin-bottom: 12px; padding: 8px 12px;">
             <button id="download-md-btn" class="btn btn-secondary btn-sm">↓ Download Markdown</button>
             <button id="download-csv-btn" class="btn btn-secondary btn-sm" style="margin-left: 8px;">↓ Download CSV</button>
+            <select id="template-select" style="margin-right:8px;"><option value="">No template</option></select>
+            <button id="download-xlsx-btn" class="btn-secondary">↓ Excel</button>
+            <button id="download-docx-btn" class="btn-secondary">↓ Word</button>
           </div>
+          <details id="template-manager" style="margin-top:8px;">
+            <summary style="cursor:pointer;color:#6b7280;font-size:13px;">Manage templates</summary>
+            <div style="padding:8px 0;">
+              <div id="template-list"></div>
+              <button id="new-template-btn" class="btn-secondary btn-sm" style="margin-top:4px;">+ New template</button>
+              <div id="template-form" style="display:none;margin-top:8px;">
+                <input id="template-name-input" placeholder="Template name" style="margin-bottom:6px;width:200px;">
+                <div id="template-field-checkboxes" style="margin-bottom:6px;"></div>
+                <button id="save-template-btn" class="btn-primary btn-sm">Save</button>
+                <button id="cancel-template-btn" class="btn-secondary btn-sm" style="margin-left:4px;">Cancel</button>
+              </div>
+            </div>
+          </details>
 
           <!-- Not started state -->
           <div id="extraction-not-started" style="display:none;" class="text-empty">
