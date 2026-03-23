@@ -2,11 +2,19 @@ import json as _json
 import uuid
 from dataclasses import asdict
 
-from sqlalchemy import select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.database.models import ChatMessage, ChatSession, Document, Extraction, Job
+from backend.database.models import (
+    ChatMessage,
+    ChatSession,
+    Document,
+    Extraction,
+    ExportTemplate,
+    FieldCorrection,
+    Job,
+)
 from backend.schemas.extraction import ExtractionResult
 
 
@@ -237,4 +245,138 @@ async def delete_session(db: AsyncSession, session_id: str) -> bool:
         return False
     await db.delete(session)
     await db.commit()
+    return True
+
+
+# --- FieldCorrection CRUD ---
+
+
+async def get_latest_corrections(db: AsyncSession, extraction_id: str) -> dict[str, FieldCorrection]:
+    """Returns {field_path -> latest FieldCorrection row} using subquery MAX(corrected_at)."""
+    subq = (
+        select(
+            FieldCorrection.extraction_id,
+            FieldCorrection.field_path,
+            func.max(FieldCorrection.corrected_at).label("max_at"),
+        )
+        .where(FieldCorrection.extraction_id == extraction_id)
+        .group_by(FieldCorrection.extraction_id, FieldCorrection.field_path)
+        .subquery()
+    )
+    stmt = select(FieldCorrection).join(
+        subq,
+        and_(
+            FieldCorrection.extraction_id == subq.c.extraction_id,
+            FieldCorrection.field_path == subq.c.field_path,
+            FieldCorrection.corrected_at == subq.c.max_at,
+        ),
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    return {row.field_path: row for row in rows}
+
+
+async def get_all_corrections(db: AsyncSession, extraction_id: str) -> list[FieldCorrection]:
+    """Full correction history ordered by corrected_at ASC."""
+    stmt = (
+        select(FieldCorrection)
+        .where(FieldCorrection.extraction_id == extraction_id)
+        .order_by(FieldCorrection.corrected_at.asc())
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def create_correction(
+    db: AsyncSession,
+    extraction_id: str,
+    field_path: str,
+    old_value: str | None,
+    new_value: str,
+    is_locked: bool = False,
+) -> FieldCorrection:
+    correction = FieldCorrection(
+        extraction_id=extraction_id,
+        field_path=field_path,
+        old_value=old_value,
+        new_value=new_value,
+        is_locked=is_locked,
+    )
+    db.add(correction)
+    await db.flush()
+    await db.refresh(correction)
+    return correction
+
+
+async def set_correction_lock(
+    db: AsyncSession, correction_id: str, is_locked: bool
+) -> FieldCorrection | None:
+    correction = await db.get(FieldCorrection, correction_id)
+    if not correction:
+        return None
+    correction.is_locked = is_locked
+    await db.flush()
+    await db.refresh(correction)
+    return correction
+
+
+async def delete_corrections_for_field(
+    db: AsyncSession, extraction_id: str, field_path: str
+) -> int:
+    """Delete all corrections for this (extraction_id, field_path). Returns deleted count."""
+    stmt = delete(FieldCorrection).where(
+        FieldCorrection.extraction_id == extraction_id,
+        FieldCorrection.field_path == field_path,
+    )
+    result = await db.execute(stmt)
+    return result.rowcount
+
+
+# --- ExportTemplate CRUD ---
+
+
+async def create_template(
+    db: AsyncSession, name: str, description: str | None, fields_json: str
+) -> ExportTemplate:
+    tmpl = ExportTemplate(name=name, description=description, fields_json=fields_json)
+    db.add(tmpl)
+    await db.flush()
+    await db.refresh(tmpl)
+    return tmpl
+
+
+async def get_template(db: AsyncSession, template_id: str) -> ExportTemplate | None:
+    return await db.get(ExportTemplate, template_id)
+
+
+async def get_template_by_name(db: AsyncSession, name: str) -> ExportTemplate | None:
+    result = await db.execute(select(ExportTemplate).where(ExportTemplate.name == name))
+    return result.scalar_one_or_none()
+
+
+async def list_templates(db: AsyncSession) -> list[ExportTemplate]:
+    result = await db.execute(
+        select(ExportTemplate).order_by(ExportTemplate.created_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def update_template(
+    db: AsyncSession, template_id: str, **kwargs
+) -> ExportTemplate | None:
+    tmpl = await db.get(ExportTemplate, template_id)
+    if not tmpl:
+        return None
+    for key, value in kwargs.items():
+        setattr(tmpl, key, value)
+    await db.flush()
+    await db.refresh(tmpl)
+    return tmpl
+
+
+async def delete_template(db: AsyncSession, template_id: str) -> bool:
+    tmpl = await db.get(ExportTemplate, template_id)
+    if not tmpl:
+        return False
+    await db.delete(tmpl)
     return True
