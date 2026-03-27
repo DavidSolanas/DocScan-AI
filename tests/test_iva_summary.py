@@ -167,3 +167,72 @@ async def test_iva_summary_irpf_totals(db_session: AsyncSession, tmp_path: Path)
 
     result = await compute_iva_summary(db_session, None, None)
     assert result["totals"]["irpf_total"] == "225.00"
+
+
+@pytest.mark.asyncio
+async def test_csv_includes_irpf_in_total_row(db_session: AsyncSession, tmp_path: Path):
+    """CSV TOTAL row must have 5 columns; column index 3 (0-based) is the IRPF amount."""
+    import csv as _csv
+    from io import StringIO
+    from httpx import AsyncClient, ASGITransport
+    from backend.main import app
+
+    json_path = _write_extraction_json(tmp_path, "doc1", {
+        "base_imponible": "1000.00",
+        "iva_rate": "21",
+        "iva_amount": "210.00",
+        "irpf_amount": "150.00",
+    })
+    await _add_extraction(db_session, "doc1", "2024-01-15", json_path)
+
+    async def _override_get_db():
+        yield db_session
+
+    app.dependency_overrides[__import__("backend.database.engine", fromlist=["get_db"]).get_db] = _override_get_db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/export/iva-summary/csv")
+        assert response.status_code == 200
+        rows = list(_csv.reader(StringIO(response.text)))
+        total_row = next(r for r in rows if r and r[0] == "TOTAL")
+        assert len(total_row) == 5, f"TOTAL row should have 5 columns, got {len(total_row)}: {total_row}"
+        assert total_row[3] == "150.00", f"Column 3 (IRPF) should be '150.00', got '{total_row[3]}'"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_csv_endpoint_includes_irpf_in_total_row(db_session: AsyncSession, tmp_path: Path):
+    """The actual CSV endpoint response has 5 columns in TOTAL row with IRPF amount."""
+    import csv as _csv
+    from io import StringIO
+    from httpx import AsyncClient, ASGITransport
+    from backend.main import app
+
+    json_path = _write_extraction_json(tmp_path, "doc1", {
+        "base_imponible": "2000.00",
+        "iva_rate": "21",
+        "iva_amount": "420.00",
+        "irpf_amount": "300.00",
+    })
+    await _add_extraction(db_session, "doc1", "2024-01-15", json_path)
+
+    async def _override_get_db():
+        yield db_session
+
+    app.dependency_overrides[__import__("backend.database.engine", fromlist=["get_db"]).get_db] = _override_get_db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/export/iva-summary/csv")
+        assert response.status_code == 200
+        rows = list(_csv.reader(StringIO(response.text)))
+        total_row = next(r for r in rows if r and r[0] == "TOTAL")
+        assert len(total_row) == 5, f"TOTAL row should have 5 columns, got: {total_row}"
+        assert total_row[3] == "300.00", f"IRPF column should be '300.00', got '{total_row[3]}'"
+        # Also check header has IRPF column
+        header_row = rows[0]
+        assert header_row[3] == "IRPF Retenido", f"Header col 3 should be 'IRPF Retenido', got '{header_row[3]}'"
+    finally:
+        app.dependency_overrides.clear()

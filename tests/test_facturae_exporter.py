@@ -105,3 +105,78 @@ def test_facturae_irpf_not_in_outputs():
         type_code = tax.find(f"{{{_NS_FE}}}TaxTypeCode")
         # Tax type "04" is IRPF in FacturaE — should not appear here
         assert type_code is None or type_code.text != "04"
+
+
+# --- PersonTypeCode tests ---
+
+from backend.services.facturae_exporter import _person_type_code  # noqa: E402
+
+
+def test_person_type_code_cif_returns_J():
+    """CIF starting with a letter (not X/Y/Z) is a legal entity → J."""
+    assert _person_type_code("B12345678") == "J"
+    assert _person_type_code("A87654321") == "J"
+    assert _person_type_code("W1234567G") == "J"  # W is not X/Y/Z
+
+
+def test_person_type_code_nif_returns_F():
+    """NIF starting with a digit is a natural person → F."""
+    assert _person_type_code("12345678Z") == "F"
+    assert _person_type_code("00000001R") == "F"
+
+
+def test_person_type_code_nie_returns_F():
+    """NIE starting with X, Y, or Z is a natural person → F."""
+    assert _person_type_code("X1234567L") == "F"
+    assert _person_type_code("Y1234567M") == "F"
+    assert _person_type_code("Z1234567R") == "F"
+    # lowercase should also work (function uses .upper())
+    assert _person_type_code("x1234567L") == "F"
+
+
+def test_person_type_code_none_returns_J():
+    """None tax ID defaults to J (legal entity)."""
+    assert _person_type_code(None) == "J"
+    assert _person_type_code("") == "J"
+
+
+def test_person_type_code_klm_returns_F():
+    """Special NIF prefixes K, L, M are natural persons → F."""
+    assert _person_type_code("K1234567L") == "F"  # NIF for minors
+    assert _person_type_code("L1234567M") == "F"  # Spanish nationals abroad
+    assert _person_type_code("M1234567R") == "F"  # Foreigners without NIE
+    # Lowercase should also work (function uses .upper())
+    assert _person_type_code("k1234567L") == "F"
+    assert _person_type_code("l1234567M") == "F"
+    assert _person_type_code("m1234567R") == "F"
+
+
+def test_generate_uses_correct_person_type_code():
+    """XML PersonTypeCode elements reflect the actual tax ID type."""
+    # CIF seller (B...) → J, NIF buyer (12...) → F
+    xml_bytes = generate_facturae_xml(make_result(
+        issuer_cif="B12345678",   # CIF → J
+        recipient_cif="12345678Z",  # NIF → F
+    ))
+    root = ET.fromstring(xml_bytes)
+
+    seller = root.find(f".//{{{_NS_FE}}}SellerParty")
+    seller_ptc = seller.find(f".//{{{_NS_FE}}}PersonTypeCode")
+    assert seller_ptc is not None and seller_ptc.text == "J", (
+        f"SellerParty PersonTypeCode should be 'J', got '{seller_ptc.text if seller_ptc is not None else None}'"
+    )
+
+    buyer = root.find(f".//{{{_NS_FE}}}BuyerParty")
+    buyer_ptc = buyer.find(f".//{{{_NS_FE}}}PersonTypeCode")
+    assert buyer_ptc is not None and buyer_ptc.text == "F", (
+        f"BuyerParty PersonTypeCode should be 'F', got '{buyer_ptc.text if buyer_ptc is not None else None}'"
+    )
+
+
+def test_generate_nie_seller_gives_F():
+    """NIE seller → PersonTypeCode F."""
+    xml_bytes = generate_facturae_xml(make_result(issuer_cif="X1234567L"))
+    root = ET.fromstring(xml_bytes)
+    seller = root.find(f".//{{{_NS_FE}}}SellerParty")
+    seller_ptc = seller.find(f".//{{{_NS_FE}}}PersonTypeCode")
+    assert seller_ptc is not None and seller_ptc.text == "F"

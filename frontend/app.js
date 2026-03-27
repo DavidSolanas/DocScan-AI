@@ -25,6 +25,10 @@ const state = {
   activeTab: "text",
   /** @type {ReturnType<typeof setInterval>|null} */
   extractionPolling: null,
+  /** @type {Object} field_path -> correction object */
+  corrections: {},
+  /** @type {Array} list of template objects */
+  templates: [],
 };
 
 // ─── Chat state ───────────────────────────────────────────────────────────────
@@ -849,7 +853,19 @@ async function loadInvoicePanel(docId) {
         await runExtraction(docId);
       });
     } else if (status === 'completed' && data.invoice_json_available && data.invoice) {
-      renderInvoiceData(data);
+      // Fetch corrections for this document
+      try {
+        const corrResp = await fetch(`/api/corrections/${docId}`);
+        if (corrResp.ok) {
+          const corrData = await corrResp.json();
+          state.corrections = {};
+          for (const c of corrData.corrections) {
+            state.corrections[c.field_path] = c;
+          }
+        }
+      } catch {}
+      await loadTemplates();
+      renderInvoiceData(data, state.corrections);
     } else {
       document.getElementById('invoice-empty').style.display = 'block';
     }
@@ -868,7 +884,26 @@ async function runExtraction(docId) {
   }
 }
 
-function renderInvoiceData(data) {
+function renderField(fieldPath, label, rawValue, corrections) {
+  const correction = corrections[fieldPath];
+  const displayValue = correction ? correction.new_value : (rawValue ?? '');
+  const isCorrected = !!correction;
+  const isLocked = correction && correction.is_locked;
+
+  return `
+    <div class="field-row ${isCorrected ? 'corrected' : ''} ${isLocked ? 'locked' : ''}"
+         data-field="${escHtml(fieldPath)}" style="position:relative;display:flex;align-items:center;gap:6px;padding:4px 0;">
+      <span style="min-width:140px;font-weight:500;color:#374151;">${escHtml(label)}:</span>
+      <span class="field-value" style="flex:1;">${escHtml(String(displayValue))}</span>
+      <button class="field-action-btn edit-btn" title="Edit" data-field="${escHtml(fieldPath)}">&#x270E;</button>
+      <button class="field-action-btn lock-btn" title="${isLocked ? 'Unlock' : 'Lock'}" data-field="${escHtml(fieldPath)}">${isLocked ? '&#x1F512;' : '&#x1F513;'}</button>
+      <button class="field-action-btn reextract-btn" title="Re-extract" data-field="${escHtml(fieldPath)}">&#x27F3;</button>
+    </div>
+  `;
+}
+
+function renderInvoiceData(data, corrections) {
+  corrections = corrections || {};
   const invoicePanel = document.getElementById('invoice-panel');
   const invoice = data.invoice;
   const anchor = invoice.anchor || {};
@@ -881,34 +916,29 @@ function renderInvoiceData(data) {
   // Review banner
   let html = '';
   if (invoice.requires_review) {
-    html += `<div class="manual-review-banner"><strong>⚠️ This invoice requires manual review</strong></div>`;
+    html += `<div class="manual-review-banner"><strong>&#x26A0;&#xFE0F; This invoice requires manual review</strong></div>`;
   }
 
-  // --- Critical Fields Card ---
-  html += `<div style="margin-bottom:12px"><strong>Critical Fields</strong><table style="width:100%;border-collapse:collapse;margin-top:6px">`;
-  const cur = escHtml(anchor.currency || 'EUR');
-  const criticalFields = [
-    ['Invoice Number', anchor.invoice_number ? escHtml(anchor.invoice_number) : null],
-    ['Date', anchor.issue_date ? escHtml(anchor.issue_date) : null],
-    ['Issuer', anchor.issuer_name ? escHtml(anchor.issuer_name) : null],
-    ['Issuer CIF', anchor.issuer_cif ? escHtml(anchor.issuer_cif) : null],
-    ['Recipient', anchor.recipient_name ? escHtml(anchor.recipient_name) : null],
-    ['Recipient CIF', anchor.recipient_cif ? escHtml(anchor.recipient_cif) : null],
-    ['Base Imponible', anchor.base_imponible ? `${escHtml(String(anchor.base_imponible))} ${cur}` : null],
-    ['IVA Rate', anchor.iva_rate ? `${escHtml(String(anchor.iva_rate))}%` : null],
-    ['IVA Amount', anchor.iva_amount ? `${escHtml(String(anchor.iva_amount))} ${cur}` : null],
-    ['IRPF Rate', anchor.irpf_rate ? `${escHtml(String(anchor.irpf_rate))}%` : null],
-    ['IRPF Amount', anchor.irpf_amount ? `-${escHtml(String(anchor.irpf_amount))} ${cur}` : null],
-    ['Total', anchor.total_amount ? `${escHtml(String(anchor.total_amount))} ${cur}` : null],
+  // --- Critical Fields (editable) ---
+  html += `<div style="margin-bottom:12px"><strong>Critical Fields</strong><div style="margin-top:6px">`;
+  const editableFields = [
+    ['anchor.invoice_number', 'Invoice Number', anchor.invoice_number ?? null],
+    ['anchor.issue_date',     'Date',           anchor.issue_date ?? null],
+    ['anchor.issuer_name',    'Issuer',         anchor.issuer_name ?? null],
+    ['anchor.issuer_cif',     'Issuer CIF',     anchor.issuer_cif ?? null],
+    ['anchor.recipient_name', 'Recipient',      anchor.recipient_name ?? null],
+    ['anchor.recipient_cif',  'Recipient CIF',  anchor.recipient_cif ?? null],
+    ['anchor.base_imponible', 'Base Imponible', anchor.base_imponible ?? null],
+    ['anchor.iva_rate',       'IVA Rate',       anchor.iva_rate ?? null],
+    ['anchor.iva_amount',     'IVA Amount',     anchor.iva_amount ?? null],
+    ['anchor.irpf_rate',      'IRPF Rate',      anchor.irpf_rate ?? null],
+    ['anchor.irpf_amount',    'IRPF Amount',    anchor.irpf_amount ?? null],
+    ['anchor.total_amount',   'Total',          anchor.total_amount ?? null],
   ];
-  const totalLabel = 'Total';
-  for (const [label, value] of criticalFields) {
-    const display = value != null ? value : '<span style="color:var(--text-muted,#888)">—</span>';
-    const isTotal = label === totalLabel;
-    const tdStyle = isTotal ? 'padding:3px 0;font-weight:bold' : 'padding:3px 0';
-    html += `<tr><td style="padding:3px 8px 3px 0;color:var(--text-muted,#888);width:40%">${escHtml(label)}</td><td style="${tdStyle}">${display}</td></tr>`;
+  for (const [fieldPath, label, rawValue] of editableFields) {
+    html += renderField(fieldPath, label, rawValue, corrections);
   }
-  html += `</table></div>`;
+  html += `</div></div>`;
 
   // --- Additional Details ---
   if (Object.keys(discovered).length > 0) {
@@ -921,7 +951,7 @@ function renderInvoiceData(data) {
   if (allIssues.length > 0) {
     html += `<div style="margin-bottom:12px"><strong>Issues & Observations</strong><ul style="list-style:none;padding:0;margin:6px 0 0">`;
     for (const issue of allIssues) {
-      const icon = issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️';
+      const icon = issue.severity === 'error' ? '&#x274C;' : issue.severity === 'warning' ? '&#x26A0;&#xFE0F;' : '&#x2139;&#xFE0F;';
       const fieldNote = issue.field ? ` <code>${escHtml(issue.field)}</code>:` : '';
       html += `<li style="padding:4px 0;border-bottom:1px solid var(--border,#eee)">${icon}${fieldNote} ${escHtml(issue.message)}</li>`;
     }
@@ -931,6 +961,251 @@ function renderInvoiceData(data) {
   invoicePanel.innerHTML = html;
   invoicePanel.style.display = 'block';
 }
+
+// ─── Field editing helpers ────────────────────────────────────────────────────
+async function saveCorrection(docId, fieldPath, newValue) {
+  const resp = await fetch(`/api/corrections/${docId}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ field_path: fieldPath, new_value: String(newValue) }),
+  });
+  if (resp.ok) {
+    const data = await resp.json();
+    state.corrections[fieldPath] = data;
+    return data;
+  }
+  return null;
+}
+
+async function toggleLock(docId, fieldPath, isLocked) {
+  const resp = await fetch(`/api/corrections/${docId}/lock`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ field_path: fieldPath, is_locked: isLocked }),
+  });
+  if (resp.ok) {
+    const data = await resp.json();
+    state.corrections[fieldPath] = data;
+    return data;
+  }
+  return null;
+}
+
+async function reextractField(docId, fieldPath) {
+  const resp = await fetch(`/api/extract/${docId}/reextract-field?field=${encodeURIComponent(fieldPath)}`, {
+    method: 'POST',
+  });
+  return resp.ok ? await resp.json() : null;
+}
+
+// ─── Invoice panel event delegation (edit / lock / re-extract) ────────────────
+document.getElementById('invoice-panel').addEventListener('click', async (e) => {
+  const docId = state.activeDocId;
+  if (!docId) return;
+
+  // Edit button
+  if (e.target.closest('.edit-btn')) {
+    const btn = e.target.closest('.edit-btn');
+    const fieldPath = btn.dataset.field;
+    const row = btn.closest('.field-row');
+    if (!row) return;
+    const valueSpan = row.querySelector('.field-value');
+    if (!valueSpan) return;
+    const currentVal = valueSpan.textContent;
+
+    // Replace span with input
+    const input = document.createElement('input');
+    input.className = 'field-edit-input';
+    input.value = currentVal;
+    valueSpan.replaceWith(input);
+    input.focus();
+
+    // Replace edit button with save/cancel
+    btn.textContent = '';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'field-action-btn';
+    saveBtn.title = 'Save';
+    saveBtn.textContent = '\u2713';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'field-action-btn';
+    cancelBtn.title = 'Cancel';
+    cancelBtn.textContent = '\u2715';
+    btn.replaceWith(saveBtn);
+    saveBtn.after(cancelBtn);
+
+    saveBtn.addEventListener('click', async () => {
+      const newVal = input.value.trim();
+      const result = await saveCorrection(docId, fieldPath, newVal);
+      if (result) {
+        showToast('Correction saved', 'success', 2000);
+        // Re-load panel to refresh state
+        await loadInvoicePanel(docId);
+      } else {
+        showToast('Failed to save correction', 'error');
+      }
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      loadInvoicePanel(docId);
+    });
+
+    return;
+  }
+
+  // Lock button
+  if (e.target.closest('.lock-btn')) {
+    const btn = e.target.closest('.lock-btn');
+    const fieldPath = btn.dataset.field;
+    const correction = state.corrections[fieldPath];
+    // Can only lock/unlock if correction exists
+    if (!correction) {
+      showToast('Save a correction first to lock it', 'warning', 2500);
+      return;
+    }
+    const newLocked = !correction.is_locked;
+    const result = await toggleLock(docId, fieldPath, newLocked);
+    if (result) {
+      showToast(newLocked ? 'Field locked' : 'Field unlocked', 'info', 2000);
+      await loadInvoicePanel(docId);
+    } else {
+      showToast('Failed to toggle lock', 'error');
+    }
+    return;
+  }
+
+  // Re-extract button
+  if (e.target.closest('.reextract-btn')) {
+    const btn = e.target.closest('.reextract-btn');
+    const fieldPath = btn.dataset.field;
+    const origText = btn.textContent;
+    btn.innerHTML = '<span class="re-extract-spinner"></span>';
+    btn.disabled = true;
+    const result = await reextractField(docId, fieldPath);
+    btn.disabled = false;
+    btn.textContent = origText;
+    if (result) {
+      showToast('Field re-extracted', 'success', 2000);
+      await loadInvoicePanel(docId);
+    } else {
+      showToast('Re-extract failed', 'error');
+    }
+    return;
+  }
+});
+
+// ─── Template manager ─────────────────────────────────────────────────────────
+async function loadTemplates() {
+  const resp = await fetch('/api/templates');
+  if (resp.ok) {
+    state.templates = await resp.json();
+    renderTemplateManager(state.templates);
+    // Update template-select dropdown
+    const sel = document.getElementById('template-select');
+    if (!sel) return;
+    const existing = sel.value;
+    sel.innerHTML = '<option value="">No template</option>';
+    state.templates.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      sel.appendChild(opt);
+    });
+    if (existing) sel.value = existing;
+  }
+}
+
+function renderTemplateManager(templates) {
+  const list = document.getElementById('template-list');
+  if (!list) return;
+  if (!templates.length) {
+    list.innerHTML = '<p style="color:#9ca3af;font-size:13px;">No templates</p>';
+    return;
+  }
+  list.innerHTML = templates.map(t => `
+    <div style="display:flex;align-items:center;gap:8px;padding:2px 0;">
+      <span style="flex:1;font-size:13px;">${escHtml(t.name)}</span>
+      <button class="field-action-btn" onclick="deleteTemplate('${escHtml(String(t.id))}')">&#x2715;</button>
+    </div>
+  `).join('');
+}
+
+function renderTemplateFieldCheckboxes() {
+  const container = document.getElementById('template-field-checkboxes');
+  if (!container) return;
+  const ANCHOR_FIELDS = [
+    {path:'anchor.invoice_number', label:'Invoice Number'},
+    {path:'anchor.issuer_name', label:'Issuer Name'},
+    {path:'anchor.issuer_cif', label:'Issuer CIF'},
+    {path:'anchor.recipient_name', label:'Recipient Name'},
+    {path:'anchor.recipient_cif', label:'Recipient CIF'},
+    {path:'anchor.issue_date', label:'Issue Date'},
+    {path:'anchor.total_amount', label:'Total Amount'},
+    {path:'anchor.base_imponible', label:'Base Imponible'},
+    {path:'anchor.iva_amount', label:'IVA Amount'},
+    {path:'anchor.iva_rate', label:'IVA Rate'},
+    {path:'lines', label:'Line Items'},
+  ];
+  container.innerHTML = ANCHOR_FIELDS.map(f => `
+    <label style="display:block;font-size:13px;">
+      <input type="checkbox" value="${escHtml(f.path)}" checked> ${escHtml(f.label)}
+    </label>
+  `).join('');
+}
+
+async function createTemplate(name, fields) {
+  const resp = await fetch('/api/templates', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, fields }),
+  });
+  return resp.ok;
+}
+
+async function deleteTemplate(id) {
+  const resp = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
+  if (resp.ok) await loadTemplates();
+}
+
+// Wire up template form buttons
+document.getElementById('new-template-btn').addEventListener('click', () => {
+  renderTemplateFieldCheckboxes();
+  document.getElementById('template-form').style.display = 'block';
+});
+
+document.getElementById('cancel-template-btn').addEventListener('click', () => {
+  document.getElementById('template-form').style.display = 'none';
+});
+
+document.getElementById('save-template-btn').addEventListener('click', async () => {
+  const name = document.getElementById('template-name-input').value.trim();
+  if (!name) return;
+  const checkboxes = document.querySelectorAll('#template-field-checkboxes input:checked');
+  const fields = Array.from(checkboxes).map(cb => ({
+    field_path: cb.value,
+    display_name: cb.parentElement.textContent.trim(),
+    include: true,
+  }));
+  if (await createTemplate(name, fields)) {
+    document.getElementById('template-form').style.display = 'none';
+    document.getElementById('template-name-input').value = '';
+    await loadTemplates();
+  }
+});
+
+// ─── xlsx / docx download handlers ───────────────────────────────────────────
+document.getElementById('download-xlsx-btn').addEventListener('click', () => {
+  if (!state.activeDocId) return;
+  const tmplId = document.getElementById('template-select').value;
+  const url = `/api/extract/${state.activeDocId}/export?format=xlsx${tmplId ? '&template_id=' + tmplId : ''}`;
+  window.location.href = url;
+});
+
+document.getElementById('download-docx-btn').addEventListener('click', () => {
+  if (!state.activeDocId) return;
+  const tmplId = document.getElementById('template-select').value;
+  const url = `/api/extract/${state.activeDocId}/export?format=docx${tmplId ? '&template_id=' + tmplId : ''}`;
+  window.location.href = url;
+});
 
 function renderDict(obj, depth = 0) {
   if (typeof obj !== 'object' || obj === null) return escHtml(String(obj));

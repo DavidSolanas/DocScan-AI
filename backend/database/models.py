@@ -99,6 +99,35 @@ class Extraction(Base):
     )
 
     document: Mapped["Document"] = relationship("Document", back_populates="extraction")
+    corrections: Mapped[list["FieldCorrection"]] = relationship(
+        "FieldCorrection", back_populates="extraction",
+        cascade="all, delete-orphan", order_by="FieldCorrection.corrected_at",
+    )
+
+
+class FieldCorrection(Base):
+    __tablename__ = "field_corrections"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    extraction_id: Mapped[str] = mapped_column(String, ForeignKey("extractions.id"), nullable=False)
+    field_path: Mapped[str] = mapped_column(String, nullable=False)
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    corrected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    extraction: Mapped["Extraction"] = relationship("Extraction", back_populates="corrections")
+
+
+class ExportTemplate(Base):
+    __tablename__ = "export_templates"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fields_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
 class ChatSession(Base):

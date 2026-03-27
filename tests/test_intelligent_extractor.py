@@ -113,3 +113,52 @@ async def test_null_string_fields_become_none():
     result = await extractor.extract("text", "invoice.pdf")
     assert result.anchor.issuer_name is None
     assert result.anchor.invoice_number is None
+
+
+# ── Phase 7: extract_field ──────────────────────────────────────────────────────
+
+def _make_extractor_with_complete(return_value=None, side_effect=None) -> IntelligentExtractor:
+    """Build an extractor where _llm.complete (not complete_json) is mocked."""
+    llm = MagicMock()
+    llm.complete_json = AsyncMock(return_value=_SAMPLE_RESPONSE)  # for extract() calls
+    if side_effect:
+        llm.complete = AsyncMock(side_effect=side_effect)
+    else:
+        llm.complete = AsyncMock(return_value=return_value)
+    return IntelligentExtractor(llm=llm)
+
+
+@pytest.mark.asyncio
+async def test_extract_field_returns_high_confidence_when_valid():
+    """When the LLM returns a plausible invoice number (no CIF validation needed),
+    and AnchorValidator finds no issues, confidence should be 'high'."""
+    # invoice_number is a free-form string — AnchorValidator never flags it,
+    # so any non-empty response for anchor.invoice_number → high confidence.
+    extractor = _make_extractor_with_complete(return_value="F-2026-001")
+    proposed, confidence = await extractor.extract_field(
+        "anchor.invoice_number", "Factura F-2026-001 emitida el 2026-01-15", current_value=None
+    )
+    assert proposed == "F-2026-001"
+    assert confidence == "high"
+
+
+@pytest.mark.asyncio
+async def test_extract_field_returns_low_when_null_response():
+    """When the LLM returns 'null', extract_field should return (None, 'low')."""
+    extractor = _make_extractor_with_complete(return_value="null")
+    proposed, confidence = await extractor.extract_field(
+        "anchor.invoice_number", "Texto sin número de factura", current_value=None
+    )
+    assert proposed is None
+    assert confidence == "low"
+
+
+@pytest.mark.asyncio
+async def test_extract_field_returns_failed_on_exception():
+    """When the LLM raises an exception, extract_field should return (None, 'failed')."""
+    extractor = _make_extractor_with_complete(side_effect=RuntimeError("model crashed"))
+    proposed, confidence = await extractor.extract_field(
+        "anchor.total_amount", "Invoice text", current_value="100.00"
+    )
+    assert proposed is None
+    assert confidence == "failed"
