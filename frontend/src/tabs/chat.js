@@ -2,15 +2,7 @@
 // Chat tab — session management, message sending, response display.
 
 import * as api from "../api.js";
-import { showToast } from "../ui.js";
-
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import { showToast, escHtml } from "../ui.js";
 
 // Module-level chat state
 let currentChatSessionId = null;

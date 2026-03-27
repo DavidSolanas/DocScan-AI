@@ -3,7 +3,7 @@
 
 import * as pdfjsLib from "../lib/pdf.mjs";
 import * as api from "./api.js";
-import { showToast } from "./ui.js";
+import { showToast, escHtml } from "./ui.js";
 
 // ── PDF.js worker ─────────────────────────────────────────────────────────────
 pdfjsLib.GlobalWorkerOptions.workerSrc = "../lib/pdf.worker.mjs";
@@ -17,14 +17,6 @@ function formatBytes(bytes) {
   const units = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
-}
-
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 function isDocPdf(doc) {

@@ -42,8 +42,8 @@ export const startExtraction = (docId) =>
   apiJson(`/extract/${docId}`, { method: 'POST' });
 export const exportExtraction = (docId, params) =>
   apiFetch(`/extract/${docId}/export?` + new URLSearchParams(params));
-export const reextractField = (docId, body) =>
-  apiJson(`/extract/${docId}/reextract-field`, { method: 'POST', body: JSON.stringify(body) });
+export const reextractField = (docId, field) =>
+  apiJson(`/extract/${docId}/reextract-field?field=${encodeURIComponent(field)}`, { method: 'POST' });
 
 // Batch
 export const batchExport = (body) =>
@@ -60,15 +60,15 @@ export const sendMessage = (sessionId, body) =>
 export const deleteChatSession = (id) =>
   apiFetch(`/chat/sessions/${id}`, { method: 'DELETE' });
 
-// Corrections
-export const getCorrections = (extractionId) =>
-  apiJson(`/corrections/extractions/${extractionId}`);
-export const saveCorrection = (extractionId, fieldPath, body) =>
-  apiJson(`/corrections/extractions/${extractionId}/fields/${fieldPath}`,
+// Corrections  (all routes use document_id, matching backend /api/corrections/{document_id})
+export const getCorrections = (docId) =>
+  apiJson(`/corrections/${docId}`);
+export const saveCorrection = (docId, body) =>
+  apiJson(`/corrections/${docId}`,
            { method: 'POST', body: JSON.stringify(body) });
-export const lockCorrection = (correctionId, locked) =>
-  apiJson(`/corrections/${correctionId}/lock`,
-           { method: 'PATCH', body: JSON.stringify({ is_locked: locked }) });
+export const lockCorrection = (docId, body) =>
+  apiJson(`/corrections/${docId}/lock`,
+           { method: 'POST', body: JSON.stringify(body) });
 
 // Templates
 export const listTemplates = () => apiJson('/templates/');

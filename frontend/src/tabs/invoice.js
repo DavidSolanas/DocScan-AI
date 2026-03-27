@@ -3,15 +3,7 @@
 // field editing/corrections, re-extract field, template manager, export.
 
 import * as api from "../api.js";
-import { showToast } from "../ui.js";
-
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import { showToast, escHtml } from "../ui.js";
 
 function renderDict(obj, depth = 0) {
   if (typeof obj !== 'object' || obj === null) return escHtml(String(obj));
@@ -37,8 +29,7 @@ export function initInvoiceTab(state) {
   $('download-md-btn').addEventListener('click', async () => {
     if (!state.activeDocId) return;
     try {
-      const resp = await fetch(`/api/extract/${state.activeDocId}/export?format=md`);
-      if (!resp.ok) { showToast('No extraction available', 'warning'); return; }
+      const resp = await api.exportExtraction(state.activeDocId, { format: 'md' });
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -54,8 +45,7 @@ export function initInvoiceTab(state) {
   $('download-csv-btn').addEventListener('click', async () => {
     if (!state.activeDocId) return;
     try {
-      const resp = await fetch(`/api/extract/${state.activeDocId}/export?format=csv`);
-      if (!resp.ok) { showToast('No extraction available', 'warning'); return; }
+      const resp = await api.exportExtraction(state.activeDocId, { format: 'csv' });
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -259,13 +249,10 @@ export async function loadInvoicePanel(docId, state) {
       });
     } else if (status === 'completed' && data.invoice_json_available && data.invoice) {
       try {
-        const corrResp = await fetch(`/api/corrections/${docId}`);
-        if (corrResp.ok) {
-          const corrData = await corrResp.json();
-          state.corrections = {};
-          for (const c of corrData.corrections) {
-            state.corrections[c.field_path] = c;
-          }
+        const corrData = await api.getCorrections(docId);
+        state.corrections = {};
+        for (const c of corrData.corrections) {
+          state.corrections[c.field_path] = c;
         }
       } catch {}
       await loadTemplates(state);
@@ -363,45 +350,37 @@ function renderInvoiceData(data, corrections) {
 
 // ── Field editing helpers ─────────────────────────────────────────────────────
 async function saveCorrectionFn(docId, fieldPath, newValue, state) {
-  const resp = await fetch(`/api/corrections/${docId}`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ field_path: fieldPath, new_value: String(newValue) }),
-  });
-  if (resp.ok) {
-    const data = await resp.json();
+  try {
+    const data = await api.saveCorrection(docId, { field_path: fieldPath, new_value: String(newValue) });
     state.corrections[fieldPath] = data;
     return data;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 async function toggleLockFn(docId, fieldPath, isLocked, state) {
-  const resp = await fetch(`/api/corrections/${docId}/lock`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ field_path: fieldPath, is_locked: isLocked }),
-  });
-  if (resp.ok) {
-    const data = await resp.json();
+  try {
+    const data = await api.lockCorrection(docId, { field_path: fieldPath, is_locked: isLocked });
     state.corrections[fieldPath] = data;
     return data;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 async function reextractFieldFn(docId, fieldPath) {
-  const resp = await fetch(`/api/extract/${docId}/reextract-field?field=${encodeURIComponent(fieldPath)}`, {
-    method: 'POST',
-  });
-  return resp.ok ? await resp.json() : null;
+  try {
+    return await api.reextractField(docId, fieldPath);
+  } catch {
+    return null;
+  }
 }
 
 // ── Template manager ──────────────────────────────────────────────────────────
 async function loadTemplates(state) {
-  const resp = await fetch('/api/templates');
-  if (resp.ok) {
-    state.templates = await resp.json();
+  try {
+    state.templates = await api.listTemplates();
     renderTemplateManager(state.templates);
     const sel = document.getElementById('template-select');
     if (!sel) return;
@@ -414,6 +393,8 @@ async function loadTemplates(state) {
       sel.appendChild(opt);
     });
     if (existing) sel.value = existing;
+  } catch {
+    // Non-fatal: templates are optional
   }
 }
 
@@ -456,34 +437,33 @@ function renderTemplateFieldCheckboxes() {
 }
 
 async function createTemplateFn(name, fields) {
-  const resp = await fetch('/api/templates', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ name, fields }),
-  });
-  return resp.ok;
+  try {
+    await api.createTemplate({ name, fields });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function deleteTemplateFn(id) {
-  const resp = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
-  if (resp.ok) {
+  try {
+    await api.deleteTemplate(id);
     // Reload templates — we need the state, but this is called from inline onclick
     // so we re-fetch and re-render
-    const listResp = await fetch('/api/templates');
-    if (listResp.ok) {
-      const templates = await listResp.json();
-      renderTemplateManager(templates);
-      const sel = document.getElementById('template-select');
-      if (sel) {
-        sel.innerHTML = '<option value="">No template</option>';
-        templates.forEach(t => {
-          const opt = document.createElement('option');
-          opt.value = t.id;
-          opt.textContent = t.name;
-          sel.appendChild(opt);
-        });
-      }
+    const templates = await api.listTemplates();
+    renderTemplateManager(templates);
+    const sel = document.getElementById('template-select');
+    if (sel) {
+      sel.innerHTML = '<option value="">No template</option>';
+      templates.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        sel.appendChild(opt);
+      });
     }
+  } catch {
+    // Non-fatal
   }
 }
 

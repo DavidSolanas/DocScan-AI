@@ -16,6 +16,10 @@ export const state = {
   libraryFilters: {},
   librarySelection: new Set(),
   libraryPage: 1,
+  // Viewer runtime state
+  rendering: false,
+  activeTab: 'text',
+  extractionPolling: null,
 };
 
 // ── View routing ───────────────────────────────────────────────
