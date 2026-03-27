@@ -6,7 +6,6 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
@@ -15,14 +14,14 @@ from backend.database.crud import (
     create_job,
     delete_document,
     get_document,
-    list_documents,
+    list_documents_filtered,
     update_document,
     update_job,
 )
 from backend.database.engine import AsyncSessionLocal, get_db
-from backend.database.models import Document
 from backend.schemas.documents import (
     DocumentDetail,
+    DocumentLibraryItem,
     DocumentListResponse,
     DocumentTextResponse,
     DocumentUploadResponse,
@@ -131,17 +130,40 @@ async def upload_document(
 
 @router.get("/", response_model=DocumentListResponse)
 async def list_documents_endpoint(
+    q: str | None = None,
+    vendor: str | None = None,
+    status: str | None = None,
+    invoice_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    amount_min: str | None = None,
+    amount_max: str | None = None,
+    sort_by: str = "upload_date",
+    sort_order: str = "desc",
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentListResponse:
-    documents = await list_documents(db, skip=skip, limit=limit)
-    count_result = await db.execute(select(func.count()).select_from(Document))
-    total = count_result.scalar_one()
-    return DocumentListResponse(
-        documents=[DocumentDetail.model_validate(d) for d in documents],
-        total=total,
+    rows, total = await list_documents_filtered(
+        db,
+        q=q, vendor=vendor, status=status, invoice_type=invoice_type,
+        date_from=date_from, date_to=date_to, amount_min=amount_min,
+        amount_max=amount_max, sort_by=sort_by, sort_order=sort_order,
+        skip=skip, limit=limit,
     )
+    items = [
+        DocumentLibraryItem(
+            **DocumentDetail.model_validate(doc).model_dump(),
+            issuer_name=ext.issuer_name if ext else None,
+            recipient_name=ext.recipient_name if ext else None,
+            issue_date=ext.issue_date if ext else None,
+            total_amount=str(ext.total_amount) if ext and ext.total_amount else None,
+            invoice_type=ext.invoice_type if ext else None,
+            extraction_status=ext.status if ext else None,
+        )
+        for doc, ext in rows
+    ]
+    return DocumentListResponse(documents=items, total=total)
 
 
 @router.get("/{document_id}", response_model=DocumentDetail)

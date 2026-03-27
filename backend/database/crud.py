@@ -1,8 +1,12 @@
 import json as _json
 import uuid
 from dataclasses import asdict
+from datetime import datetime as _datetime
+from typing import Optional
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import Float as SAFloat
+from sqlalchemy import cast
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -38,6 +42,69 @@ async def list_documents(
         select(Document).order_by(Document.upload_date.desc()).offset(skip).limit(limit)
     )
     return list(result.scalars().all())
+
+
+async def list_documents_filtered(
+    db: AsyncSession,
+    q: Optional[str] = None,
+    vendor: Optional[str] = None,
+    status: Optional[str] = None,
+    invoice_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    amount_min: Optional[str] = None,
+    amount_max: Optional[str] = None,
+    sort_by: str = "upload_date",
+    sort_order: str = "desc",
+    skip: int = 0,
+    limit: int = 20,
+) -> "tuple[list[tuple[Document, Optional[Extraction]]], int]":
+    """LEFT JOIN Documents with Extractions and apply optional column filters."""
+    stmt = select(Document, Extraction).outerjoin(
+        Extraction, Document.id == Extraction.document_id
+    )
+    if q:
+        stmt = stmt.where(Document.filename.ilike(f"%{q}%"))
+    if vendor:
+        stmt = stmt.where(
+            or_(
+                Extraction.issuer_name.ilike(f"%{vendor}%"),
+                Extraction.recipient_name.ilike(f"%{vendor}%"),
+            )
+        )
+    if status:
+        stmt = stmt.where(Document.status == status)
+    if invoice_type:
+        stmt = stmt.where(Extraction.invoice_type == invoice_type)
+    if date_from:
+        iso = _datetime.strptime(date_from, "%d/%m/%Y").strftime("%Y-%m-%d")
+        stmt = stmt.where(Extraction.issue_date >= iso)
+    if date_to:
+        iso = _datetime.strptime(date_to, "%d/%m/%Y").strftime("%Y-%m-%d")
+        stmt = stmt.where(Extraction.issue_date <= iso)
+    if amount_min:
+        stmt = stmt.where(cast(Extraction.total_amount, SAFloat) >= float(amount_min))
+    if amount_max:
+        stmt = stmt.where(cast(Extraction.total_amount, SAFloat) <= float(amount_max))
+
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    sort_col_map = {
+        "upload_date": Document.upload_date,
+        "filename": Document.filename,
+        "issue_date": Extraction.issue_date,
+        "total_amount": Extraction.total_amount,
+    }
+    col = sort_col_map.get(sort_by, Document.upload_date)
+    if sort_order == "asc":
+        stmt = stmt.order_by(col.asc().nullslast())
+    else:
+        stmt = stmt.order_by(col.desc().nullslast())
+
+    stmt = stmt.offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.all()), total
 
 
 async def update_document(
@@ -111,27 +178,50 @@ def _extraction_status(result: ExtractionResult) -> str:
 async def create_extraction(
     db: AsyncSession,
     document_id: str,
-    result: ExtractionResult,
+    result: "ExtractionResult | dict",
     json_path: str,
 ) -> Extraction:
-    a = result.anchor
-    extraction = Extraction(
-        id=uuid.uuid4().hex,
-        document_id=document_id,
-        invoice_number=a.invoice_number,
-        issuer_cif=a.issuer_cif,
-        issuer_name=a.issuer_name,
-        recipient_cif=a.recipient_cif,
-        recipient_name=a.recipient_name,
-        issue_date=a.issue_date,
-        total_amount=str(a.total_amount) if a.total_amount is not None else None,
-        currency=a.currency,
-        status=_extraction_status(result),
-        validation_errors=(
-            _json.dumps([asdict(i) for i in result.issues]) if result.issues else None
-        ),
-        json_path=json_path,
-    )
+    if isinstance(result, dict):
+        # Accept a flat dict for testing convenience — maps top-level keys to Extraction columns
+        extraction = Extraction(
+            id=uuid.uuid4().hex,
+            document_id=document_id,
+            invoice_number=result.get("invoice_number"),
+            issuer_cif=result.get("issuer_cif"),
+            issuer_name=result.get("issuer_name"),
+            recipient_cif=result.get("recipient_cif"),
+            recipient_name=result.get("recipient_name"),
+            issue_date=result.get("issue_date"),
+            total_amount=result.get("total_amount"),
+            currency=result.get("currency", "EUR"),
+            invoice_type=result.get("invoice_type"),
+            status=result.get("status", "valid"),
+            validation_errors=(
+                _json.dumps(result["validation_errors"])
+                if result.get("validation_errors")
+                else None
+            ),
+            json_path=json_path,
+        )
+    else:
+        a = result.anchor
+        extraction = Extraction(
+            id=uuid.uuid4().hex,
+            document_id=document_id,
+            invoice_number=a.invoice_number,
+            issuer_cif=a.issuer_cif,
+            issuer_name=a.issuer_name,
+            recipient_cif=a.recipient_cif,
+            recipient_name=a.recipient_name,
+            issue_date=a.issue_date,
+            total_amount=str(a.total_amount) if a.total_amount is not None else None,
+            currency=a.currency,
+            status=_extraction_status(result),
+            validation_errors=(
+                _json.dumps([asdict(i) for i in result.issues]) if result.issues else None
+            ),
+            json_path=json_path,
+        )
     db.add(extraction)
     await db.commit()
     await db.refresh(extraction)
