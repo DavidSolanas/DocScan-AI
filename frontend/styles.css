@@ -66,6 +66,7 @@
   --status-pending-bg: #f8fafc;
 
   --shadow: 0 2px 12px rgba(0,0,0,0.08);
+  --radius: 6px;
 }
 
 /* ─── Reset & Base ────────────────────────────────────────────────────────── */
@@ -811,7 +812,7 @@ html, body {
 .chat-citations {
   margin-top: 6px;
   padding: 6px 8px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--bg-raised);
   border-radius: var(--radius-sm);
   font-size: 0.78em;
   color: var(--text-muted);
