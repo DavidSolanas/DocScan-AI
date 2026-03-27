@@ -60,6 +60,7 @@ async def ocr_document_task(
             engine_per_page: list[str] = []
 
             tables_by_page: dict[int, list] = {}
+            was_cancelled = False
 
             if ext == ".pdf":
                 import asyncio
@@ -69,9 +70,10 @@ async def ocr_document_task(
                     # --- cancellation check ---
                     current_job = await get_job(db, job_id)
                     if current_job and current_job.status == "cancelling":
+                        was_cancelled = True
                         await update_job(db, job_id, status="cancelled",
                                          completed_at=datetime.now(UTC))
-                        return   # skip auto-extraction
+                        return
                     # --- end cancellation check ---
                     image = await asyncio.to_thread(pdf_page_to_image, file_path, i, dpi)
                     if do_preprocess:
@@ -157,8 +159,7 @@ async def ocr_document_task(
             )
 
             # Auto-trigger extraction — only if not cancelled
-            current_job = await get_job(db, job_id)
-            if current_job and current_job.status != "cancelled":
+            if not was_cancelled:
                 from backend.services.invoice_extractor import is_likely_invoice
                 if is_likely_invoice(result.full_text):
                     from backend.api.extract import _run_extraction
