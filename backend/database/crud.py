@@ -77,15 +77,29 @@ async def list_documents_filtered(
     if invoice_type:
         stmt = stmt.where(Extraction.invoice_type == invoice_type)
     if date_from:
-        iso = _datetime.strptime(date_from, "%d/%m/%Y").strftime("%Y-%m-%d")
+        try:
+            iso = _datetime.strptime(date_from, "%d/%m/%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"date_from must be in dd/mm/yyyy format, got: {date_from!r}")
         stmt = stmt.where(Extraction.issue_date >= iso)
     if date_to:
-        iso = _datetime.strptime(date_to, "%d/%m/%Y").strftime("%Y-%m-%d")
+        try:
+            iso = _datetime.strptime(date_to, "%d/%m/%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"date_to must be in dd/mm/yyyy format, got: {date_to!r}")
         stmt = stmt.where(Extraction.issue_date <= iso)
     if amount_min:
-        stmt = stmt.where(cast(Extraction.total_amount, SAFloat) >= float(amount_min))
+        try:
+            min_val = float(amount_min)
+        except ValueError:
+            raise ValueError(f"amount_min must be a number, got: {amount_min!r}")
+        stmt = stmt.where(cast(Extraction.total_amount, SAFloat) >= min_val)
     if amount_max:
-        stmt = stmt.where(cast(Extraction.total_amount, SAFloat) <= float(amount_max))
+        try:
+            max_val = float(amount_max)
+        except ValueError:
+            raise ValueError(f"amount_max must be a number, got: {amount_max!r}")
+        stmt = stmt.where(cast(Extraction.total_amount, SAFloat) <= max_val)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar_one()
@@ -94,7 +108,7 @@ async def list_documents_filtered(
         "upload_date": Document.upload_date,
         "filename": Document.filename,
         "issue_date": Extraction.issue_date,
-        "total_amount": Extraction.total_amount,
+        "total_amount": cast(Extraction.total_amount, SAFloat),  # numeric sort
     }
     col = sort_col_map.get(sort_by, Document.upload_date)
     if sort_order == "asc":

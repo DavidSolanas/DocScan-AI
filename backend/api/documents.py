@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -139,18 +140,21 @@ async def list_documents_endpoint(
     amount_min: str | None = None,
     amount_max: str | None = None,
     sort_by: str = "upload_date",
-    sort_order: str = "desc",
+    sort_order: Literal["asc", "desc"] = "desc",
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentListResponse:
-    rows, total = await list_documents_filtered(
-        db,
-        q=q, vendor=vendor, status=status, invoice_type=invoice_type,
-        date_from=date_from, date_to=date_to, amount_min=amount_min,
-        amount_max=amount_max, sort_by=sort_by, sort_order=sort_order,
-        skip=skip, limit=limit,
-    )
+    try:
+        rows, total = await list_documents_filtered(
+            db,
+            q=q, vendor=vendor, status=status, invoice_type=invoice_type,
+            date_from=date_from, date_to=date_to, amount_min=amount_min,
+            amount_max=amount_max, sort_by=sort_by, sort_order=sort_order,
+            skip=skip, limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     items = [
         DocumentLibraryItem(
             **DocumentDetail.model_validate(doc).model_dump(),
