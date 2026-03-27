@@ -26,6 +26,7 @@ CLAUDE.md
 PROJECT_STATUS.md
 ROUTEPLAN.md
 docs/superpowers/
+.superpowers/
 
 # MCP specific
 .playwright-mcp/
