@@ -47,9 +47,11 @@ Extend `GET /api/documents/` with optional query parameters. A new `list_documen
 | `sort_order` | enum | `asc` \| `desc` (default: `desc`) |
 | `skip` / `limit` | int | unchanged (pagination) |
 
-Response shape is unchanged: `{ items: [...], total: int }`. The `total` reflects the filtered count (for correct pagination).
+**Date parsing:** `date_from` and `date_to` are accepted in `dd/mm/yyyy` format (matching the UI). The CRUD function parses them to ISO 8601 before comparing against `Extraction.issue_date` (stored as ISO 8601 strings).
 
-Each response item includes both `Document` fields and a flattened subset of `Extraction` fields needed for the table: `issuer_name`, `recipient_name`, `issue_date`, `total_amount`, `invoice_type`, `extraction_status`.
+**Response shape:** Unchanged key name — `{ "documents": [...], "total": int }` matching the existing `DocumentListResponse` schema. The `total` reflects the filtered count (for correct pagination).
+
+Each item in `documents` is an extended `DocumentDetail` — a new `DocumentLibraryItem` schema subclasses `DocumentDetail` and adds the following optional fields (null when no extraction exists): `issuer_name`, `recipient_name`, `issue_date`, `total_amount`, `invoice_type`, `extraction_status`. The `DocumentListResponse.documents` field type is updated from `list[DocumentDetail]` to `list[DocumentLibraryItem]`. Since all new fields are `Optional`, existing consumers and existing tests remain valid.
 
 ### 2. Batch export endpoint
 
@@ -63,13 +65,20 @@ Each response item includes both `Document` fields and a flattened subset of `Ex
 }
 ```
 
+**Supported formats (intentional subset of per-document formats):**
+- `xlsx` — calls existing `ExcelExporter`
+- `csv` — calls existing CSV export path
+- `json` — writes the raw extraction JSON file (`Extraction.json_path`) contents as-is for each document
+
+SII, FacturaE, DOCX, and Markdown formats are intentionally excluded from batch export — they are specialist outputs best used one document at a time.
+
 **Behaviour:**
-- Validates all document IDs exist and have a completed extraction
-- Documents with no extraction are skipped (included in a `skipped` list in the response if all fail; otherwise silently omitted from ZIP)
+- Returns 400 if `document_ids` is empty or exceeds 50 items
+- Documents that exist but have no completed extraction are silently skipped; if _all_ provided IDs are skipped, returns 400 with a clear message
 - Calls existing per-document exporters for each valid document
-- Assembles results into an in-memory ZIP (`zipfile.ZipFile` with `BytesIO`)
+- Assembles results into an in-memory ZIP (`zipfile.ZipFile` with `BytesIO`), one file per document named `<filename>.<ext>`
 - Streams back `application/zip` with filename `docscanai_export_<timestamp>.zip`
-- Maximum batch size: 50 documents (returns 400 if exceeded)
+- Returns 404 if any `document_id` does not exist in the DB
 
 ### 3. Job cancel endpoint
 
@@ -77,13 +86,14 @@ Each response item includes both `Document` fields and a flattened subset of `Ex
 
 **Behaviour:**
 - Returns 404 if job not found
-- Returns 400 if job is already `completed`, `failed`, or `cancelled`
+- Returns 400 if job status is already `completed`, `failed`, `cancelled`, or `cancelling` (idempotent guard — a second cancel request on an in-progress cancellation gets a clean 400, not a 404)
 - Sets `Job.status = "cancelling"` in DB
 - Returns 200 immediately — cancellation is cooperative, not immediate
 
 **Background task responsibility:**
 - OCR and extraction background tasks check `Job.status == "cancelling"` at the start of each page/chunk iteration
 - On detection: update status to `"cancelled"`, set `completed_at`, and return early
+- **Auto-extraction suppression:** The OCR background task currently auto-triggers an extraction job on completion. If cancellation is detected mid-OCR, the auto-extraction trigger is skipped — no extraction job is created for a cancelled OCR run.
 - No asyncio task cancellation — purely DB-flag-based cooperative cancellation
 
 ---
@@ -92,12 +102,12 @@ Each response item includes both `Document` fields and a flattened subset of `Ex
 
 ### Architecture — ES Module Split
 
-`app.js` (currently 52KB monolith) is decomposed into focused ES modules. `index.html` loads `src/main.js` as `type="module"`.
+`app.js` (currently 52KB monolith) is decomposed into focused ES modules. `index.html` is updated to load `src/main.js` as `type="module"` (replacing the current `./app.js` script tag). `app.js` is deleted after the split is complete.
 
 ```
 frontend/
-├── index.html
-├── styles.css
+├── index.html          ← script tag updated: app.js → src/main.js
+├── styles.css          ← restructured with CSS custom properties for theming
 └── src/
     ├── main.js         # Entry point, global state object, view routing
     ├── api.js          # All fetch wrappers (apiFetch, apiJson) + endpoint constants
@@ -157,11 +167,13 @@ Activated via "Library" button in the nav bar. Replaces the 3-panel viewer conta
 **Per-row actions:**
 - `Open` → switches to viewer view and loads document
 - `Export` → single-document export (existing flow)
-- `Retry` → shown instead of Export for failed documents (triggers OCR + extraction)
+- `Retry` → shown instead of Export for failed documents; fires `POST /api/ocr/{id}` only (auto-extraction follows via the existing OCR completion trigger)
 
 **Sorting:** Clicking a column header toggles asc/desc for that column. Active sort column is highlighted with an arrow indicator.
 
 **Pagination:** 20 documents per page. Shows "Showing X–Y of Z". Previous/Next + page number buttons.
+
+**Selection scope:** Row selection is page-local — navigating to a different page clears the current selection. The batch bar disappears on page change.
 
 **Empty states:** Distinct messages for "no documents uploaded yet" vs "no documents match filters."
 
@@ -198,7 +210,7 @@ final UI update
 
 ## What Is Not Changed
 
-- All existing API endpoints (documents, OCR, extract, chat, corrections, templates, export) are unchanged
+- All existing API endpoints (documents, OCR, extract, chat, corrections, templates, export) are unchanged in their behaviour
 - The extraction panel, field editing, corrections overlay, and template manager are unchanged
 - The Chat tab is unchanged
 - The database schema requires no new tables or columns
@@ -208,7 +220,8 @@ final UI update
 
 ## Testing
 
-- `test_documents_filter.py` — parametrized tests for all filter combinations, sort orders, pagination with filtered counts
-- `test_batch_export.py` — valid batch, mixed valid/no-extraction, over-limit, unknown IDs
-- `test_job_cancel.py` — cancel pending, cancel running, cancel already-completed (400), cancel unknown (404)
+- `test_documents_filter.py` — parametrized tests for all filter combinations, sort orders, pagination with filtered counts, date format parsing (dd/mm/yyyy → ISO comparison)
+- `test_batch_export.py` — valid batch (xlsx/csv/json), mixed valid/no-extraction, all-skipped (400), over-limit (400), unknown IDs (404)
+- `test_job_cancel.py` — cancel pending job, cancel running job, cancel already-completed (400), cancel already-cancelling (400), cancel unknown (404), verify auto-extraction suppressed after OCR cancel
+- **`conftest.py`:** Any new API module (`api/batch.py`, `api/jobs.py` if extended) that uses `AsyncSessionLocal` directly must be added to the `db_session` fixture patch list alongside the existing modules
 - Frontend: no automated tests (existing pattern); manual test checklist in the implementation plan
