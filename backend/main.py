@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from backend.api.batch import router as batch_router
 from backend.api.chat import router as chat_router
 from backend.api.corrections import router as corrections_router
 from backend.api.documents import router as documents_router
@@ -44,6 +45,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(batch_router)
 app.include_router(documents_router)
 app.include_router(jobs_router)
 app.include_router(ocr_router)
