@@ -237,6 +237,9 @@ function bindFilterEvents() {
 
   // Filter panel — delegated events
   container.addEventListener('change', (e) => {
+    // Row checkboxes are handled by the click handler; ignore them here.
+    if (e.target.classList.contains('row-check') || e.target.id === 'lib-select-all') return;
+
     if (e.target.name === 'status') {
       const checked = [...document.querySelectorAll('[name="status"]:checked')].map(i => i.value);
       filters.status = checked.includes('all') || !checked.length ? undefined : checked[0];
