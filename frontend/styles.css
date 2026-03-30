@@ -948,9 +948,15 @@ html, body {
 .re-extract-popover  { position: absolute; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; box-shadow: var(--shadow); z-index: 100; min-width: 200px; color: var(--text-primary); }
 
 /* ── Library view ─────────────────────────────────────────── */
+#library-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 49px); /* below nav */
+}
 .library-layout {
   display: flex;
-  height: calc(100vh - 49px); /* below nav */
+  flex: 1;
+  min-height: 0; /* allow flex child to shrink below content height */
   overflow: hidden;
 }
 .library-filters {

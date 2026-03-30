@@ -333,6 +333,19 @@ function bindFilterEvents() {
       updateBatchBar(); return;
     }
 
+    // Clicking anywhere on a row (not a button, not the checkbox) toggles selection
+    const libRow = e.target.closest('tr.lib-row');
+    if (libRow && !e.target.closest('button') && !e.target.classList.contains('row-check')) {
+      const checkbox = libRow.querySelector('.row-check');
+      if (checkbox) {
+        checkbox.checked = !checkbox.checked;
+        checkbox.checked ? selectedIds.add(checkbox.dataset.id) : selectedIds.delete(checkbox.dataset.id);
+        libRow.classList.toggle('row--selected', checkbox.checked);
+        updateBatchBar();
+      }
+      return;
+    }
+
     // Export ZIP
     if (e.target.id === 'lib-export-btn') {
       const fmt = document.getElementById('lib-export-fmt').value;
