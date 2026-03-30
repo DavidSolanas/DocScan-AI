@@ -1,11 +1,10 @@
 services:
   docscanai:
-    build:
-      target: builder
     volumes:
       - .:/app
+      - /app/.venv          # anonymous volume — preserves venv built into the image
       - docscanai-data:/app/data
       - docscanai-models:/home/docscanai/.cache
-    command: uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+    command: ["--reload"]
     environment:
       - DOCSCAN_DEBUG=true
