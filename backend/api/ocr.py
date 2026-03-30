@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
-from backend.database.crud import create_job, get_document, update_document, update_job
+from backend.database.crud import create_job, get_document, get_job, update_document, update_job
 from backend.database.engine import AsyncSessionLocal, get_db
 from backend.database.models import Job
 from backend.schemas.jobs import JobResponse
@@ -60,12 +60,21 @@ async def ocr_document_task(
             engine_per_page: list[str] = []
 
             tables_by_page: dict[int, list] = {}
+            was_cancelled = False
 
             if ext == ".pdf":
                 import asyncio
 
                 total_pages = pdf_page_count(file_path)
                 for i in range(total_pages):
+                    # --- cancellation check ---
+                    current_job = await get_job(db, job_id)
+                    if current_job and current_job.status == "cancelling":
+                        was_cancelled = True
+                        await update_job(db, job_id, status="cancelled",
+                                         completed_at=datetime.now(UTC))
+                        return
+                    # --- end cancellation check ---
                     image = await asyncio.to_thread(pdf_page_to_image, file_path, i, dpi)
                     if do_preprocess:
                         preprocessed = await preprocess_image(image)
@@ -149,23 +158,24 @@ async def ocr_document_task(
                 completed_at=datetime.now(UTC),
             )
 
-            # Auto-trigger extraction if document looks like an invoice
-            from backend.services.invoice_extractor import is_likely_invoice
-            if is_likely_invoice(result.full_text):
-                from backend.api.extract import _run_extraction
-                from sqlalchemy import select as _select
-                from backend.database.models import Job as _Job
-                # Only trigger if no pending/running extraction job exists
-                existing_jobs = await db.execute(
-                    _select(_Job).where(
-                        _Job.document_id == document_id,
-                        _Job.job_type == "extraction",
-                        _Job.status.in_(["pending", "running"]),
+            # Auto-trigger extraction — only if not cancelled
+            if not was_cancelled:
+                from backend.services.invoice_extractor import is_likely_invoice
+                if is_likely_invoice(result.full_text):
+                    from backend.api.extract import _run_extraction
+                    from sqlalchemy import select as _select
+                    from backend.database.models import Job as _Job
+                    # Only trigger if no pending/running extraction job exists
+                    existing_jobs = await db.execute(
+                        _select(_Job).where(
+                            _Job.document_id == document_id,
+                            _Job.job_type == "extraction",
+                            _Job.status.in_(["pending", "running"]),
+                        )
                     )
-                )
-                if existing_jobs.scalar_one_or_none() is None:
-                    extraction_job = await create_job(db, document_id=document_id, job_type="extraction")
-                    await _run_extraction(document_id, extraction_job.id)
+                    if existing_jobs.scalar_one_or_none() is None:
+                        extraction_job = await create_job(db, document_id=document_id, job_type="extraction")
+                        await _run_extraction(document_id, extraction_job.id)
 
         except Exception as exc:
             logger.exception("OCR failed for document %s", document_id)

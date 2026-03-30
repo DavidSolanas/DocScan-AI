@@ -25,6 +25,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     )
 
     # Patch AsyncSessionLocal so background tasks use the test DB
+    import backend.api.batch as batch_module
     import backend.api.chat as chat_module
     import backend.api.corrections as corrections_module
     import backend.api.documents as docs_module
@@ -36,6 +37,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
     orig_session_local = engine_module.AsyncSessionLocal
     engine_module.AsyncSessionLocal = session_factory
+    batch_module.AsyncSessionLocal = session_factory
     docs_module.AsyncSessionLocal = session_factory
     ocr_module.AsyncSessionLocal = session_factory
     extract_module.AsyncSessionLocal = session_factory
@@ -48,6 +50,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
     engine_module.AsyncSessionLocal = orig_session_local
+    batch_module.AsyncSessionLocal = orig_session_local
     docs_module.AsyncSessionLocal = orig_session_local
     ocr_module.AsyncSessionLocal = orig_session_local
     extract_module.AsyncSessionLocal = orig_session_local

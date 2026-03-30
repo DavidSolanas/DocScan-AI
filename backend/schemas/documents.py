@@ -31,8 +31,18 @@ class DocumentDetail(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DocumentLibraryItem(DocumentDetail):
+    """DocumentDetail extended with flattened Extraction fields for the Library view."""
+    issuer_name: str | None = None
+    recipient_name: str | None = None
+    issue_date: str | None = None
+    total_amount: str | None = None
+    invoice_type: str | None = None
+    extraction_status: str | None = None
+
+
 class DocumentListResponse(BaseModel):
-    documents: list[DocumentDetail]
+    documents: list[DocumentLibraryItem]   # was list[DocumentDetail]
     total: int
 
 

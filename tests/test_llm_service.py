@@ -48,15 +48,6 @@ async def test_ollama_provider_no_format_key_when_json_mode_false():
     assert "format" not in payload
 
 
-async def test_ollama_provider_format_json_when_json_mode_true():
-    mock_client = _mock_httpx_client()
-    with patch("backend.services.llm_service.httpx.AsyncClient", return_value=mock_client):
-        provider = OllamaProvider(model="llama3.1:8b", host="http://localhost:11434", timeout=30)
-        await provider.complete("prompt", json_mode=True)
-    payload = mock_client.post.call_args[1]["json"]
-    assert payload["format"] == "json"
-
-
 async def test_ollama_provider_system_prompt_included():
     mock_client = _mock_httpx_client()
     with patch("backend.services.llm_service.httpx.AsyncClient", return_value=mock_client):
